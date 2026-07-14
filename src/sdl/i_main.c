@@ -389,6 +389,13 @@ int VitaBoot_Active(void)
 void VitaBoot_Done(void);
 void VitaBoot_Done(void)
 {
+	/* Le boot est termine : on demarre le compteur qui armera le hot-swap de
+	   resolution deux frames plus tard (cf. vita_hotres_ready / I_FinishUpdate
+	   dans i_video.c). A poser AVANT le retour anticipe ci-dessous, pour le cas
+	   ou l'ecran de boot serait desactive. */
+	extern UINT8 vita_boot_finished;
+	vita_boot_finished = 1;
+
 	if (!vita_bootlog_on)
 		return;
 

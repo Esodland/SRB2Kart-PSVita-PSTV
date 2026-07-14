@@ -130,6 +130,19 @@ static consvar_t cv_stretch = {"stretch", "Off", CV_SAVE|CV_NOSHOWHELP, CV_OnOff
 
 UINT8 graphics_started = 0; // Is used in console.c and screen.c
 
+#ifdef __vita__
+/* Mis a 1 par VitaBoot_Done (fin du boot). Sert de point de depart au compteur
+   de frames ci-dessous. */
+UINT8 vita_boot_finished = 0;
+/* Autorise le changement de resolution A CHAUD. On ne l'arme PAS des la fin du
+   boot : la toute premiere application (resolution de la config, via
+   SCR_CheckDefaultMode) est traitee avant qu'aucune vraie frame de jeu ne soit
+   presentee. Forcer a ce moment la recreation de la cible de rendu GXM plante
+   SceGxm (scene_reset sur un GXM pas encore stable — data abort, 14/07/2026).
+   On attend donc deux frames de jeu (voir I_FinishUpdate) avant d'armer. */
+UINT8 vita_hotres_ready = 0;
+#endif
+
 // To disable fullscreen at startup; is set in VID_PrepareModeList
 boolean allow_fullscreen = false;
 static SDL_bool disable_fullscreen = SDL_FALSE;
@@ -1663,6 +1676,19 @@ void I_FinishUpdate(void)
 
 	VITA_KEEP_BOOTSCREEN();
 
+#ifdef __vita__
+	/* Armement differe du hot-swap de resolution : deux frames de jeu apres la
+	   fin du boot. La 1re frame porte l'application de la resolution de config
+	   (SCR_CheckDefaultMode), qui doit rester un simple realignement, pas un
+	   hot-swap (cf. declaration de vita_hotres_ready). */
+	if (vita_boot_finished && !vita_hotres_ready)
+	{
+		static INT32 vita_postboot_frames = 0;
+		if (++vita_postboot_frames >= 2)
+			vita_hotres_ready = 1;
+	}
+#endif
+
 	exposevideo = SDL_FALSE;
 }
 
@@ -1904,25 +1930,56 @@ INT32 VID_SetMode(INT32 modeNum)
 		&& (windowedModes[modeNum][0] != vita_render_w
 			|| windowedModes[modeNum][1] != vita_render_h))
 	{
+		int nw = windowedModes[modeNum][0];
+		int nh = windowedModes[modeNum][1];
 		int i;
 
-		/* Au DEMARRAGE, ce desaccord est normal : la config du jeu n'est pas
-		   encore chargee et cv_scr_width porte encore sa valeur par defaut. Il
-		   ne faut surtout rien persister, sinon on ecraserait le choix de
-		   l'utilisateur. On ne memorise que les changements qu'il demande. */
-		if (graphics_started)
+		/* CHANGEMENT A CHAUD (vitaGL). vglSwapResolution ne fait qu'armer la
+		   nouvelle taille ; c'est le prochain vglSwapBuffers qui, tout a la
+		   fin, appelle sceGxmFinish + detruit/recree la cible de rendu GXM.
+		   On force donc UNE presentation juste apres pour que le format soit
+		   reellement en place avant qu'OglSdlSurface() ne reconfigure le GL.
+		   Interdit tant que vita_hotres_ready vaut 0 (voir sa declaration) :
+		   pendant le boot on se contente de memoriser pour le lancement suivant. */
+		if (graphics_started && vita_hotres_ready && vglSwapResolution(nw, nh))
 		{
-			VitaGfx_SaveRes(windowedModes[modeNum][0], windowedModes[modeNum][1]);
-			/* On aligne AUSSI les cvars du jeu (sauvegardees dans
-			   kartconfig.cfg) : sans ca, config et gfxmode.txt se
-			   contrediraient au prochain demarrage. */
-			CV_SetValue(&cv_scr_width, windowedModes[modeNum][0]);
-			CV_SetValue(&cv_scr_height, windowedModes[modeNum][1]);
-			CONS_Printf("\x82%dx%d\x80 will be applied when you restart the game.\n",
-				windowedModes[modeNum][0], windowedModes[modeNum][1]);
+			int k;
+			/* Le changement ne s'applique qu'a la FIN d'un vglSwapBuffers, et le
+			   triple buffering garde 2 a 3 frames en vol : un seul swap laissait
+			   l'ecran afficher la resolution PRECEDENTE (le texte/HUD, lui, suit
+			   vid.width tout de suite -> impression d'inversion). On vide donc tout
+			   le pipeline pour que la nouvelle taille soit reellement a l'ecran
+			   avant de rendre la main. Le depth reste a 960x544 (cf. init), donc
+			   ces glClear ne debordent jamais. */
+			for (k = 0; k < 3; k++) // triple buffering (defaut vitaGL moderne)
+			{
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				vglSwapBuffers(GL_FALSE);
+			}
+			vita_render_w = nw;
+			vita_render_h = nh;
+			OglSdlSurface(nw, nh);    // reprojette le GL a la nouvelle taille
+			VitaGfx_SaveRes(nw, nh);  // et on garde ce choix pour la prochaine fois
+			CV_SetValue(&cv_scr_width, nw);
+			CV_SetValue(&cv_scr_height, nh);
+			CONS_Printf("\x82%dx%d\x80 applied.\n", nw, nh);
+		}
+		/* Hot-swap pas (encore) autorise : c'est l'application de la resolution de
+		   config sur la 1re frame, ou le boot. Le moteur GXM tourne deja a
+		   vita_render (issu de gfxmode.txt) ; on ne le touche pas. On aligne au
+		   contraire les cvars du jeu sur cette resolution reelle, pour qu'il n'y
+		   ait plus aucun desaccord (le menu affiche la verite, rien n'est a
+		   ressaisir). Le vrai choix de l'utilisateur, lui, passera par le menu une
+		   fois le hot-swap arme, et sera applique en direct. */
+		else if (graphics_started)
+		{
+			CV_SetValue(&cv_scr_width, vita_render_w);
+			CV_SetValue(&cv_scr_height, vita_render_h);
 		}
 
-		/* On continue avec la resolution reellement active. */
+		/* On aligne modeNum sur la resolution REELLEMENT active : identique si le
+		   hot-swap a echoue/ete differe, la nouvelle sinon. Ainsi vid.width et
+		   l'echelle du HUD suivent toujours ce qui est vraiment affiche. */
 		for (i = 0; i < MAXWINMODES; i++)
 		{
 			if (windowedModes[i][0] == vita_render_w
@@ -2340,7 +2397,16 @@ void I_StartupGraphics(void)
 			   - vglStart/StopRendering() : remplaces par vglSwapBuffers() ;
 			   - le triple buffering, qu'on obtenait en patchant DISPLAY_BUFFER_COUNT
 			     dans les sources, est desormais LE DEFAUT (vglUseTripleBuffering). */
-			vglInitExtended(0x1000000, vita_render_w, vita_render_h, 0x1000000, SCE_GXM_MULTISAMPLE_NONE);
+			/* On initialise TOUJOURS a la resolution MAXIMALE (960x544), quelle que
+			   soit la resolution voulue. Raison : le depth/stencil buffer de vitaGL
+			   est dimensionne ICI, une fois pour toutes — et son chemin de
+			   changement de resolution a chaud (vglSwapResolution) recree la cible
+			   de rendu et les color surfaces mais PAS le depth buffer. En le taillant
+			   pour le maximum, tout hot-swap vers une resolution <= 960x544 reste
+			   dans ses limites (sinon sceGxmBeginScene lit hors du depth -> data abort
+			   GXM, 14/07/2026). La resolution voulue est appliquee juste apres, par un
+			   premier vglSwapResolution (le depth, lui, reste au maximum). */
+			vglInitExtended(0x1000000, 960, 544, 0x1000000, SCE_GXM_MULTISAMPLE_NONE);
 			glEnableClientState(GL_VERTEX_ARRAY);
 			gVertexBufferPtr = (float*)malloc(0x400000);
 			gColorBufferPtr = (uint8_t*)malloc(0x200000);
@@ -2367,6 +2433,24 @@ void I_StartupGraphics(void)
 				{
 					glClear(GL_COLOR_BUFFER_BIT);
 					vglSwapBuffers(GL_FALSE);
+				}
+			}
+
+			/* Abaissement vers la resolution voulue (lue dans gfxmode.txt par
+			   VitaGfx_Init). On est encore dans l'init, ecran de chargement affiche :
+			   c'est le moment sur pour ce swap. Le depth buffer, lui, reste taille
+			   pour 960x544 (voir vglInitExtended ci-dessus). */
+			if (vita_render_w != 960 || vita_render_h != 544)
+			{
+				if (vglSwapResolution(vita_render_w, vita_render_h))
+				{
+					glClear(GL_COLOR_BUFFER_BIT);
+					vglSwapBuffers(GL_FALSE); // applique le nouveau format
+				}
+				else
+				{
+					vita_render_w = 960; // format refuse : on reste au maximum
+					vita_render_h = 544;
 				}
 			}
 			{
