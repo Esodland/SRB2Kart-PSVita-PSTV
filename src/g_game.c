@@ -6047,12 +6047,12 @@ void G_GhostTicker(void)
 				if (ziptic & DXD_NAME)
 					g->p += 16; // yea
 				if (ziptic & DXD_PLAYSTATE && READUINT8(g->p) != DXD_PST_PLAYING)
-					I_Error("Ghost is not a record attack ghost"); //@TODO lmao don't blow up like this
+					goto ghost_invalid; // etait un I_Error : un fantome illisible ne doit pas tuer le jeu
 			}
 			else if (ziptic == DW_RNG)
 				g->p += 4; // RNG seed
 			else
-				I_Error("Ghost is not a record attack ghost"); //@TODO lmao don't blow up like this
+				goto ghost_invalid; // etait un I_Error : un fantome illisible ne doit pas tuer le jeu
 
 			ziptic = READUINT8(g->p);
 		}
@@ -6087,7 +6087,7 @@ void G_GhostTicker(void)
 		if (ziptic == 0xFF)
 			goto skippedghosttic; // Didn't write ghost info this frame
 		else if (ziptic != 0)
-			I_Error("Ghost is not a record attack ghost"); //@TODO lmao don't blow up like this
+			goto ghost_invalid; // etait un I_Error : un fantome illisible ne doit pas tuer le jeu
 		ziptic = READUINT8(g->p);
 #ifdef DEMO_COMPAT_100
 		}
@@ -6237,7 +6237,7 @@ void G_GhostTicker(void)
 		{
 #endif
 		if (READUINT8(g->p) != 0xFF) // Make sure there isn't other ghost data here.
-			I_Error("Ghost is not a record attack ghost"); //@TODO lmao don't blow up like this
+			goto ghost_invalid; // etait un I_Error : un fantome illisible ne doit pas tuer le jeu
 #ifdef DEMO_COMPAT_100
 		}
 #endif
@@ -6269,6 +6269,24 @@ skippedghosttic:
 			continue;
 		}
 		p = g;
+		continue;
+
+	ghost_invalid:
+		/* Un fantome qu'on ne sait pas relire (format inattendu) : on le RETIRE au
+		   lieu de tuer le jeu. Le code amont marque ces points « lmao don't blow up
+		   like this » — c'est fait. Vecu : les best-time / best-lap / last ghosts de
+		   Green Hills Zone, enregistres sur PS Vita, faisaient planter le
+		   Contre-la-montre a chaque relance. Le chargement de fantome est de
+		   l'AFFICHAGE local (pas la simu du lockstep) : aucun risque de desynchro.
+		   ⚠️ On DETRUIT aussi le pantin (g->mo) : le retirer de la liste sans ca
+		   laissait un personnage fantome fige au depart de la piste. */
+		if (g->mo)
+			P_RemoveMobj(g->mo);
+		if (p)
+			p->next = g->next;
+		else
+			ghosts = g->next;
+		Z_Free(g);
 	}
 }
 
