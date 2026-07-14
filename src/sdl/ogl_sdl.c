@@ -244,8 +244,7 @@ void OglSdlFinishUpdate(boolean waitvbl)
 	   inutile : on présente le backbuffer tel quel. */
 	(void)sdlw;
 	(void)sdlh;
-	vglStopRendering();
-	vglStartRendering();
+	vglSwapBuffers(GL_FALSE); // remplace vglStopRendering + vglStartRendering
 
 	GClipRect(0, 0, realwidth, realheight, NZCLIP_PLANE);
 #else

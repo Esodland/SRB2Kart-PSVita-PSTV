@@ -2335,33 +2335,40 @@ void I_StartupGraphics(void)
 		{
 			/* Meme resolution que la fenetre et vid.width : c'est ELLE qui
 			   determine le nombre de pixels a remplir par le GPU. */
+			/* vitaGL MODERNE (2026). Ce qui a disparu depuis la version de 2019 :
+			   - vglUseVram() : la gestion memoire est automatique ;
+			   - vglStart/StopRendering() : remplaces par vglSwapBuffers() ;
+			   - le triple buffering, qu'on obtenait en patchant DISPLAY_BUFFER_COUNT
+			     dans les sources, est desormais LE DEFAUT (vglUseTripleBuffering). */
 			vglInitExtended(0x1000000, vita_render_w, vita_render_h, 0x1000000, SCE_GXM_MULTISAMPLE_NONE);
 			glEnableClientState(GL_VERTEX_ARRAY);
-			vglUseVram(GL_TRUE);
-			//vglMapHeapMem();
 			gVertexBufferPtr = (float*)malloc(0x400000);
 			gColorBufferPtr = (uint8_t*)malloc(0x200000);
 			gTexCoordBufferPtr = (float*)malloc(0x200000);
 			gVertexBuffer = gVertexBufferPtr;
 			gColorBuffer = gColorBufferPtr;
 			gTexCoordBuffer = gTexCoordBufferPtr;
-			vglStartRendering();
-			int i;
-			indices = (uint16_t*)malloc(sizeof(uint16_t*)*MAX_INDICES);
-			for (i=0;i<MAX_INDICES;i++){
-				indices[i] = i;
+			{
+				int i;
+				indices = (uint16_t*)malloc(sizeof(uint16_t)*MAX_INDICES);
+				for (i = 0; i < MAX_INDICES; i++)
+					indices[i] = i;
 			}
 			vglIndexPointerMapped(indices);
-			/* les deux swap buffers sortent de la CDRAM non initialisée
-			   (blanc bruité) : on les nettoie en noir, sinon les frames de
-			   chargement (texte console blanc) sont illisibles */
+
+			/* Les buffers d'affichage sortent de la CDRAM NON INITIALISEE (blanc
+			   bruite) : on les nettoie en noir, sinon les frames de chargement
+			   (texte blanc de la console) sont illisibles. Trois buffers depuis que
+			   le triple buffering est le defaut. */
 			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT);
-			vglStopRendering();
-			vglStartRendering();
-			glClear(GL_COLOR_BUFFER_BIT);
-			vglStopRendering();
-			vglStartRendering();
+			{
+				int i;
+				for (i = 0; i < 3; i++)
+				{
+					glClear(GL_COLOR_BUFFER_BIT);
+					vglSwapBuffers(GL_FALSE);
+				}
+			}
 			{
 				/* l'init vitaGL vient de voler l'écran à l'écran de chargement :
 				   on remet son framebuffer (et on le redessine, la CDRAM ayant
@@ -2547,12 +2554,13 @@ boolean I_TextInputDialog(const char *title, const char *initial, char *out, siz
 
 	while (sceImeDialogGetStatus() != SCE_COMMON_DIALOG_STATUS_FINISHED)
 	{
-		// Equivalent de notre presentation habituelle (vglStopRendering +
-		// vglStartRendering), avec la mise a jour du dialogue intercalee.
-		vglStopRenderingInit();
-		vglUpdateCommonDialog();
-		vglStopRenderingTerm();
-		vglStartRendering();
+		// Un common dialog ne se dessine pas tout seul : c'est le compositeur du
+		// systeme qui ecrit dans le back-buffer qu'on lui designe, donc il faut
+		// continuer a presenter des frames tant qu'il est ouvert. vitaGL moderne
+		// fait tout ca en UN appel — l'ancienne sequence (vglStopRenderingInit /
+		// vglUpdateCommonDialog / vglStopRenderingTerm / vglStartRendering) n'existe
+		// plus.
+		vglSwapBuffers(GL_TRUE);
 	}
 
 	memset(&result, 0, sizeof(result));
