@@ -20,6 +20,7 @@ UINT8 K_GetKartColorByName(const char *name);
 
 void K_RegisterKartStuff(void);
 
+void K_Rumble(player_t *player, UINT8 large, UINT8 small, UINT32 duration);
 boolean K_IsPlayerLosing(player_t *player);
 boolean K_IsPlayerWanted(player_t *player);
 void K_KartBouncing(mobj_t *mobj1, mobj_t *mobj2, boolean bounce, boolean solid);

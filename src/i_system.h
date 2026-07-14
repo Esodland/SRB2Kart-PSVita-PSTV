@@ -181,6 +181,21 @@ void I_Tactile3(FFType Type, const JoyFF_t *Effect);
 */
 void I_Tactile4(FFType Type, const JoyFF_t *Effect);
 
+/**	\brief	Rumble one local player's controller (DualShock motors on PS TV)
+
+	\param	view     splitscreen view index, 0 through 3
+	\param	large    strength of the large (low frequency) motor, 0 through 255
+	\param	small    strength of the small (high frequency) motor, 0 through 255
+	\param	duration how long to rumble, in milliseconds
+
+	\return	void
+*/
+void I_Rumble(UINT8 view, UINT8 large, UINT8 small, UINT32 duration);
+
+/**	\brief	Stop every controller's motors right now
+*/
+void I_StopRumble(void);
+
 /**	\brief to set up the first joystick scale
 */
 void I_JoyScale(void);

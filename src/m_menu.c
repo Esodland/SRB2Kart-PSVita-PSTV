@@ -1169,6 +1169,7 @@ static menuitem_t OP_Joystick1Menu[] =
 	{IT_STRING | IT_CVAR,  NULL, "Spec. Look Up/Down" , &cv_lookaxis         , 100},
 	{IT_STRING | IT_CVAR,  NULL, "X deadzone"         , &cv_xdeadzone        , 120},
 	{IT_STRING | IT_CVAR,  NULL, "Y deadzone"         , &cv_ydeadzone        , 130},
+	{IT_STRING | IT_CVAR,  NULL, "Rumble"             , &cv_rumble           , 145}, // shared by all pads
 };
 
 static menuitem_t OP_Joystick2Menu[] =

@@ -69,6 +69,7 @@ of SEGA's intellectual property used in SRB2.
 | **LAN multiplayer** | ✅ Host and join by direct IP |
 | **Online multiplayer** | ✅ **Official Kart Krew master server** (server browser works) |
 | **On-screen keyboard** | ✅ For IP address, server name, player name |
+| **Rumble** | ✅ DualShock 3/4 motors on PS TV (bumps, hits, boosts, offroad) — inert on a handheld Vita |
 | **Known gaps** | Screen wipes/fades disabled; sky gradient flat; heavily-modded servers can exceed the console's memory (see *Limits*) |
 
 ---
@@ -173,6 +174,29 @@ Menus: ✕ confirms, ○ cancels. **✕ also opens the on-screen keyboard** on a
 
 > `kartconfig.cfg` **overrides the defaults**. If bindings look wrong after an update, delete
 > `ux0:data/srb2kart/kartconfig.cfg`.
+
+### Rumble (PS TV)
+
+**Options → Controls → Gamepad Options → Rumble** — `Off` / `Light` / `Normal` / `Strong`.
+
+A DualShock 3/4 plugged into a PS TV has motors, so the port drives them:
+
+| Event | Feel |
+|---|---|
+| Bumping another kart | short thump |
+| Spinout (banana, orbinaut…) | medium shake |
+| Squish (Grow/Shrink) | heavier |
+| Explosion (mine, SPB, Eggman) | full strength |
+| Boost / sneaker | 2 s of high-frequency buzz |
+| Offroad (grass, sand, mud) | continuous grind, scaled by how deep the offroad is and how fast you are actually ploughing through it |
+
+Under the hood this is `sceCtrlSetActuator`, reached through `SDL_GameControllerRumble` — SDL's
+Vita backend maps each pad to its own port, so **splitscreen rumbles the right controller**.
+The handheld Vita has no motors: there the call fails harmlessly and nothing happens, like the
+L2/R2 bindings above.
+
+Rumble only ever *reads* player state and never touches the RNG, so it cannot desync a netgame —
+if you extend it, keep it that way (see [Rules for contributors](#rules-for-contributors)).
 
 ---
 

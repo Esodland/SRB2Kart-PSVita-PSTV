@@ -18,6 +18,7 @@
 #include "z_zone.h"
 #include "m_misc.h"
 #include "m_cond.h"
+#include "i_system.h"	// I_Rumble
 #include "k_kart.h"
 #include "f_finale.h"
 #include "lua_hud.h"	// For Lua hud checks
@@ -578,6 +579,7 @@ void K_RegisterKartStuff(void)
 	CV_RegisterVar(&cv_kartgametypepreference);
 	CV_RegisterVar(&cv_kartspeedometer);
 	CV_RegisterVar(&cv_kartvoices);
+	CV_RegisterVar(&cv_rumble);
 	CV_RegisterVar(&cv_karteliminatelast);
 	CV_RegisterVar(&cv_votetime);
 
@@ -593,6 +595,36 @@ void K_RegisterKartStuff(void)
 }
 
 //}
+
+//
+// K_Rumble
+//
+// Rumbles the controller of a local player, at the strength picked in cv_rumble.
+// The strengths passed in are the ones for "Normal".
+//
+// This only ever READS player state and never touches the RNG, so it is safe to
+// call from the simulation. Keep it that way: anything writing state from here
+// would desync netgames.
+//
+void K_Rumble(player_t *player, UINT8 large, UINT8 small, UINT32 duration)
+{
+	UINT8 i;
+
+	if (!cv_rumble.value || !player || demo.playback)
+		return;
+
+	for (i = 0; i <= splitscreen; i++)
+	{
+		if (player != &players[displayplayers[i]])
+			continue;
+
+		I_Rumble(i,
+			(UINT8)min(255, (large * cv_rumble.value) / 2),
+			(UINT8)min(255, (small * cv_rumble.value) / 2),
+			duration);
+		return;
+	}
+}
 
 boolean K_IsPlayerLosing(player_t *player)
 {
@@ -1355,6 +1387,7 @@ void K_KartBouncing(mobj_t *mobj1, mobj_t *mobj2, boolean bounce, boolean solid)
 	// Also set justbumped here
 	if (mobj1->player)
 	{
+		K_Rumble(mobj1->player, 80, 40, 120);
 		mobj1->player->rmomx = mobj1->momx - mobj1->player->cmomx;
 		mobj1->player->rmomy = mobj1->momy - mobj1->player->cmomy;
 		mobj1->player->kartstuff[k_justbumped] = bumptime;
@@ -1367,6 +1400,7 @@ void K_KartBouncing(mobj_t *mobj1, mobj_t *mobj2, boolean bounce, boolean solid)
 
 	if (mobj2->player)
 	{
+		K_Rumble(mobj2->player, 80, 40, 120);
 		mobj2->player->rmomx = mobj2->momx - mobj2->player->cmomx;
 		mobj2->player->rmomy = mobj2->momy - mobj2->player->cmomy;
 		mobj2->player->kartstuff[k_justbumped] = bumptime;
@@ -1452,6 +1486,8 @@ static UINT8 K_CheckOffroadCollide(mobj_t *mo)
 
 	\return	void
 */
+static void K_RumbleOffroad(player_t *player);
+
 static void K_UpdateOffroad(player_t *player)
 {
 	fixed_t offroad;
@@ -1478,6 +1514,42 @@ static void K_UpdateOffroad(player_t *player)
 	}
 	else
 		player->kartstuff[k_offroad] = 0;
+
+	K_RumbleOffroad(player);
+}
+
+//
+// K_RumbleOffroad
+//
+// The gritty, continuous rumble of driving through grass, sand or mud. Strength
+// follows k_offroad (0 to 3 fracunits, ramping up over half a second) and how
+// fast you are actually ploughing through it - crawling in the grass barely
+// buzzes.
+//
+// Re-issued every few tics instead of every one: each rumble is a call into
+// SceCtrl, and an effect that outlives the gap between calls feels identical.
+//
+static void K_RumbleOffroad(player_t *player)
+{
+	fixed_t amount = player->kartstuff[k_offroad];
+	fixed_t topspeed;
+	UINT8 large;
+
+	if (leveltime % 4)
+		return;
+
+	if (!amount || player->kartstuff[k_sneakertimer]) // a boost of its own has the motors
+		return;
+
+	topspeed = K_GetKartSpeed(player, false);
+	if (!topspeed || player->speed < topspeed/4) // barely moving, barely shaking
+		return;
+
+	// 3 fracunits of offroad at top speed = the strongest we go.
+	large = (UINT8)min(110, (amount / FRACUNIT) * 36);
+	large = (UINT8)((large * min(FRACUNIT, FixedDiv(player->speed, topspeed))) / FRACUNIT);
+
+	K_Rumble(player, large, large/2, 200);
 }
 
 // Adds gravity flipping to an object relative to its master and shifts the z coordinate accordingly.
@@ -2115,6 +2187,8 @@ void K_SpinPlayer(player_t *player, mobj_t *source, INT32 type, mobj_t *inflicto
 	if (source && source != player->mo && source->player)
 		K_PlayHitEmSound(source);
 
+	K_Rumble(player, 160, 100, 350);
+
 	//player->kartstuff[k_sneakertimer] = 0;
 	player->kartstuff[k_driftboost] = 0;
 
@@ -2321,6 +2395,7 @@ void K_SquishPlayer(player_t *player, mobj_t *source, mobj_t *inflictor)
 		P_SetPlayerMobjState(player->mo, S_KART_SQUISH);
 
 	P_PlayRinglossSound(player->mo);
+	K_Rumble(player, 200, 140, 400);
 
 	player->kartstuff[k_instashield] = 15;
 	if (cv_kartdebughuddrop.value && !modeattacking)
@@ -2378,6 +2453,8 @@ void K_ExplodePlayer(player_t *player, mobj_t *source, mobj_t *inflictor) // A b
 
 	if (source && source != player->mo && source->player)
 		K_PlayHitEmSound(source);
+
+	K_Rumble(player, 255, 200, 500);
 
 	player->kartstuff[k_sneakertimer] = 0;
 	player->kartstuff[k_driftboost] = 0;
@@ -3581,6 +3658,7 @@ void K_DoSneaker(player_t *player, INT32 type)
 	{
 		S_StartSound(player->mo, sfx_cdfm01);
 		K_SpawnDashDustRelease(player);
+		K_Rumble(player, 150, 230, 2000); // a long buzz, for as long as the boost lasts
 		if (intendedboost > player->kartstuff[k_speedboost])
 			player->kartstuff[k_destboostcam] = FixedMul(FRACUNIT, FixedDiv((intendedboost - player->kartstuff[k_speedboost]), intendedboost));
 	}

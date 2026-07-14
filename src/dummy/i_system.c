@@ -58,6 +58,16 @@ void I_Tactile2(FFType Type, const JoyFF_t *Effect)
 	(void)Effect;
 }
 
+void I_Rumble(UINT8 view, UINT8 large, UINT8 small, UINT32 duration)
+{
+	(void)view;
+	(void)large;
+	(void)small;
+	(void)duration;
+}
+
+void I_StopRumble(void) {}
+
 void I_JoyScale(void){}
 
 void I_JoyScale2(void){}

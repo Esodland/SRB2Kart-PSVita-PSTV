@@ -226,6 +226,7 @@ static void JoyReset(SDLJoyInfo_t *JoySet)
 {
 	if (JoySet->dev)
 	{
+		SDL_GameControllerRumble(JoySet->dev, 0, 0, 0); // or the motor keeps running after we let go of the pad
 		SDL_GameControllerClose(JoySet->dev);
 	}
 	JoySet->dev = NULL;
@@ -2918,6 +2919,37 @@ void I_StartupMouse2(void)
 	SetCommState(mouse2filehandle, &dcb);
 	I_AddExitFunc(I_ShutdownMouse2);
 #endif
+}
+
+//
+// I_Rumble
+//
+// Vibrates the controller of one local player (view = splitscreen index 0-3).
+// large/small are the two DualShock motor strengths (0-255), duration in ms.
+// On PS TV this reaches the DS3/DS4 motors: SDL's Vita backend turns
+// SDL_GameControllerRumble into sceCtrlSetActuator. A handheld Vita has no
+// motor, so the call simply fails and nothing happens.
+//
+static SDLJoyInfo_t *const rumblejoys[4] = {&JoyInfo, &JoyInfo2, &JoyInfo3, &JoyInfo4};
+
+void I_Rumble(UINT8 view, UINT8 large, UINT8 small, UINT32 duration)
+{
+	if (view >= 4 || !rumblejoys[view]->dev)
+		return;
+
+	// SDL takes 16-bit magnitudes; the Vita backend keeps the high byte.
+	SDL_GameControllerRumble(rumblejoys[view]->dev, large << 8, small << 8, duration);
+}
+
+void I_StopRumble(void)
+{
+	UINT8 i;
+
+	for (i = 0; i < 4; i++)
+	{
+		if (rumblejoys[i]->dev)
+			SDL_GameControllerRumble(rumblejoys[i]->dev, 0, 0, 0);
+	}
 }
 
 //
