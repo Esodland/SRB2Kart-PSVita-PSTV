@@ -231,15 +231,22 @@ vdpm zlib libpng jpeg freetype
 vdpm curl openssl zstd     # master server (HTTPS) — curl here is built against OpenSSL
 ```
 
-**vitaGL** must be built with `HAVE_SBRK=1` (it needs newlib's heap symbols):
+**vitaGL** must be built with `HAVE_SBRK=1` (it needs newlib's heap symbols).
+
+> ⚠️ This port is built against the **2019** vitaGL that came with `srb2-vita` (commit
+> `694b387`), *not* current upstream — see *Rendering* below. Building against a recent vitaGL
+> has **not been tested** and several of the workarounds in `r_opengl.c` would become
+> unnecessary (and possibly harmful). Pin the commit until someone does that work:
 
 ```bash
 git clone https://github.com/Rinnegatamante/vitaGL && cd vitaGL
+git checkout 694b387          # the version this port was developed against
 make HAVE_SBRK=1 install
 ```
 
-This port also builds vitaGL with **`DISPLAY_BUFFER_COUNT 3`** (triple buffering) in
-`source/shared.h` — see *Performance work* below.
+Against that old copy, also set **`DISPLAY_BUFFER_COUNT 3`** (triple buffering) in
+`source/shared.h` — see *Performance work* below. Current vitaGL exposes the display buffer
+count at runtime, so that patch is specific to the old version.
 
 ### Compile
 
@@ -307,21 +314,35 @@ returned a "valid" file descriptor.
 Related: `fopen(..., "a")` (append) **does not create the file** on this libc. When file I/O
 looks wrong, drop to the raw `sceIo*` API — it never lies.
 
-### Rendering: vitaGL is not OpenGL
+### Rendering: this port builds against a **2019** vitaGL
 
-- vitaGL accepts **float vertex attributes only**. MD3 models are loaded as shorts
-  (`useFloat=false`) → they are converted short→float on every draw. Colour arrays of
-  `GL_UNSIGNED_BYTE` are ignored, which is why the sky gradient is flat white.
+> ⚠️ **Important, and embarrassing.** This port builds against the vitaGL that came with the 2019
+> `srb2-vita` tree (commit `694b387`). Upstream vitaGL is **more than 1100 commits ahead**, and
+> several of the limitations worked around below **were fixed years ago** — `glRotatef` with
+> negative axes, the fixed 128-buffer pool, the hardcoded display-buffer count.
+>
+> We initially reported these upstream as if they were current bugs, **without ever reading the
+> current code**. They were not, and the reports were rightly rejected. The full accounting is in
+> [`upstream/vitagl/`](upstream/vitagl/CORRECTION-we-were-looking-at-a-2019-snapshot.md).
+>
+> **Moving this port to a current vitaGL is the obvious next step**, and would likely delete a
+> good part of the glue described below.
+
+What the *2019* vitaGL needed — i.e. what the engine assumes about OpenGL that it did not provide:
+
+- It accepts **float vertex attributes only**. MD3 models load as shorts (`useFloat=false`) →
+  converted short→float on every draw. Colour arrays of `GL_UNSIGNED_BYTE` are ignored, which is
+  why the sky gradient is flat white.
 - `glDrawElements` indices are **always cast to `uint16_t`** → index type forced to
-  `GL_UNSIGNED_SHORT` and the batcher flushes before 65536 vertices.
-- Only **128 buffer objects** exist. The engine created one VBO *per model frame*, silently
-  exhausted them (`glGenBuffers` writes nothing), then indexed `gpu_buffers[-40960]`. Models
-  now draw from client arrays instead.
-- `glCopyTexImage2D` is a **no-op** → the engine's "final screen texture" pass painted an
-  empty texture over the frame (black screen). Skipped; wipes/fades are disabled as a result.
+  `GL_UNSIGNED_SHORT`, and the batcher flushes before 65536 vertices.
+- Only **128 buffer objects** exist *(fixed upstream since)*. The engine created one VBO *per
+  model frame* and silently exhausted them. Models draw from client arrays instead.
+- `glCopyTexImage2D` is a **no-op** → the engine's "final screen texture" pass painted an empty
+  texture over the frame (black screen). Skipped; wipes/fades are disabled as a result.
 - Texture 0 cannot be sampled → any untextured polygon was invisible (menu dimming, fills).
   A 1×1 white texture is bound instead.
-- `glRotatef` mishandles **negative axes** — pass a positive axis and negate the angle.
+- `glRotatef` mishandles **negative axes** *(fixed upstream since)* — we pass a positive axis and
+  negate the angle.
 
 ### The display is not the framebuffer
 

@@ -5,23 +5,26 @@ projects — and worked around them locally, which helps nobody but us.
 
 **This folder is what we owe them.** Everything here is written to be sent upstream as-is.
 
-Nothing in here has been submitted yet. Someone needs to open the issues/PRs.
+**Read this first:** the vitaGL section below was **wrong** — we reported bugs from a 2019
+snapshot as if they were current, without checking upstream. Those reports are withdrawn. It is
+a cautionary tale, and it is kept here on purpose rather than quietly deleted.
+
+The SRB2Kart fixes were verified against the **current** `master` and are submitted as
+[merge request !365](https://git.do.srb2.org/KartKrew/Kart-Public/-/merge_requests/365).
 
 ---
 
-## [vitaGL](https://github.com/Rinnegatamante/vitaGL) — Rinnegatamante
+## ~~vitaGL~~ — WE GOT THIS WRONG
 
-| File | What | Status |
-|---|---|---|
-| `vitagl/0001-glTexImage2D-do-not-upload-with-a-NULL-write-callback.patch` | An unsupported `internalFormat` sets `GL_INVALID_ENUM` but **keeps going** and calls `gpu_alloc_texture()` with `write_cb == NULL` → branch to address 0, hard crash instead of an error code. | ✅ applies cleanly on `master` |
-| `vitagl/0002-glRotatef-honour-negative-axes.patch` | `glRotatef(a, 0, -1, 0)` is legal GL and **silently does nothing** — only `== 1.0f` is tested. Rotations just vanish. | ✅ applies cleanly on `master` |
-| `vitagl/ISSUE-mempool_alloc-null-not-checked.md` | `mempool_alloc()` correctly returns NULL when the GPU pool is exhausted, but **callers never check it** — so running out of GPU memory becomes a data abort *inside vitaGL*, pointing at a renderer bug that does not exist. Hit while loading a server's 274 MB of add-ons (every character sprite becomes an RGBA texture). | report |
-| `vitagl/ISSUE-glGenBuffers-silent-exhaustion.md` | Past `BUFFERS_NUM` (128), `glGenBuffers` leaves the caller's array **untouched** and sets no error → `glBindBuffer(0)` → `gpu_buffers[-40960]` → memory corruption that crashes somewhere unrelated. This is a design decision, so it's a report, not a patch. | report |
+**The vitaGL patches and reports that used to be here have been withdrawn. They were written
+against a copy of vitaGL from November 2019 — 1167 commits behind upstream — and every single
+one of them had already been fixed years ago.** Three issues were opened on that basis and
+rightly closed.
 
-Also worth raising: **`DISPLAY_BUFFER_COUNT` is 2**, so `displayQueueMaxPendingCount` is 1 and
-the CPU blocks in `vglStopRendering()` waiting for the GPU *every frame* — CPU and GPU time
-**add up** instead of overlapping. Building with 3 (triple buffering) was worth several ms per
-frame for us, at the cost of ~2 MB CDRAM. Maybe it should be a runtime/init option.
+The full accounting is in [`vitagl/CORRECTION-we-were-looking-at-a-2019-snapshot.md`](vitagl/CORRECTION-we-were-looking-at-a-2019-snapshot.md).
+
+Nothing here should be sent to vitaGL. The port should move to a current vitaGL instead — that
+would probably remove several of the workarounds in `src/hardware/r_opengl/r_opengl.c`.
 
 ## [srb2-vita](https://github.com/Rinnegatamante/srb2-vita) — Rinnegatamante
 

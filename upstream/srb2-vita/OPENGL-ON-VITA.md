@@ -13,6 +13,28 @@ lot of patience — and because they apply to SRB2 itself, not just Kart.
 
 ---
 
+## ⚠️ Read this before trusting anything below
+
+**This analysis was done against the vitaGL that ships with the 2019 `srb2-vita` tree
+(commit `694b387`, November 2019). Upstream vitaGL is now more than 1100 commits ahead, and
+several of the "vitaGL limitations" described here have been fixed since.**
+
+We got this badly wrong once already: we filed bug reports upstream describing this old code as
+if it were current. It was not, and they were rightly rejected. See
+[`../vitagl/CORRECTION-we-were-looking-at-a-2019-snapshot.md`](../vitagl/CORRECTION-we-were-looking-at-a-2019-snapshot.md).
+
+So read what follows as **"what it takes to get the GL renderer running against the vitaGL of
+that era"** — which is exactly what you face if you build `srb2-vita` as it stands today. Before
+implementing any workaround listed here, **check whether current vitaGL still needs it.** Known
+to be fixed upstream already: `glRotatef` with negative axes, the fixed 128-buffer pool behind
+`glGenBuffers`, and the display-buffer count (now a runtime setting, so triple buffering no
+longer needs a source patch).
+
+The *engine-side* findings — what SRB2's renderer assumes about OpenGL, and the performance
+work — are independent of vitaGL's version and still stand.
+
+---
+
 ## The seven blockers
 
 ### 1. vitaGL only reads **float** vertex attributes
