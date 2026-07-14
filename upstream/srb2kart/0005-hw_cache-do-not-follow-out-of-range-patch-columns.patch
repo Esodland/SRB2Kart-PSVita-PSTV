@@ -1,0 +1,78 @@
+From: Esod <psvita-port>
+Subject: [PATCH] hw_cache: do not follow out-of-range patch columns
+
+`HWR_DrawPatchInCache()` walks a patch's column offsets and dereferences them
+without ever checking that the column index is inside the patch:
+
+```c
+for (block += col*bpp; ncols--; block += bpp, xfrac += xfracstep)
+{
+	patchcol = (const column_t *)((const UINT8 *)realpatch
+	 + LONG(realpatch->columnofs[xfrac>>FRACBITS]));   /* <-- */
+```
+
+`columnofs[]` only has `SHORT(realpatch->width)` entries. `xfrac >> FRACBITS`
+is derived from `ptexturewidth / pblockwidth` scaling, so it is *expected* to
+stay in range — but nothing enforces it, and nothing validates the patch data
+either. Read one entry past the array and you take whatever bytes follow for a
+byte offset, add them to `realpatch`, and dereference the result.
+
+The failure mode is nasty: **a data abort inside the texture cache**, with no
+error message, on a machine where the zone allocator and the WAD loader both
+reported success. The developer goes looking for a renderer bug that isn't
+there.
+
+We hit this once on a PS Vita, on the first launch after installing the game —
+most plausibly a bad read from the memory card producing an inconsistent patch.
+It never reproduced, which is exactly why the guard is worth having: corrupt or
+truncated data should cost you a texture, not the process.
+
+This patch:
+
+- returns early if the patch or the destination block is NULL,
+- returns early on a non-positive patch width,
+- **skips** any column whose index falls outside the patch instead of following
+  a made-up offset.
+
+No behaviour change on valid data.
+---
+ src/hardware/hw_cache.c | 26 ++++++++++++++++++++++----
+ 1 file changed, 22 insertions(+), 4 deletions(-)
+
+--- a/src/hardware/hw_cache.c
++++ b/src/hardware/hw_cache.c
+@@ -49,9 +49,20 @@ static void HWR_DrawPatchInCache(GLMipmap_t *mipmap,
+ 	UINT8 *block = mipmap->grInfo.data;
+ 	UINT8 texel;
+ 	UINT16 texelu16;
++	INT32 patchwidth;
++
++	// Corrupt or truncated patch data must cost a texture, not the process.
++	if (!realpatch || !block)
++		return;
++
++	patchwidth = SHORT(realpatch->width);
++
++	if (patchwidth <= 0)
++		return;
+
+ 	x1 = originx;
+-	x2 = x1 + SHORT(realpatch->width);
++	x2 = x1 + patchwidth;
+
+ 	if (x1 < 0)
+ 		x = 0;
+@@ -92,8 +103,15 @@ static void HWR_DrawPatchInCache(GLMipmap_t *mipmap,
+ 	for (block += col*bpp; ncols--; block += bpp, xfrac += xfracstep)
+ 	{
+ 		INT32 topdelta, prevdelta = -1;
++		INT32 srccol = xfrac>>FRACBITS;
++
++		// columnofs[] only has `patchwidth` entries: reading past it means taking
++		// arbitrary bytes for an offset and following them anywhere.
++		if (srccol < 0 || srccol >= patchwidth)
++			continue;
++
+ 		patchcol = (const column_t *)((const UINT8 *)realpatch
+-		 + LONG(realpatch->columnofs[xfrac>>FRACBITS]));
++		 + LONG(realpatch->columnofs[srccol]));

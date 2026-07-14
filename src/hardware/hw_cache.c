@@ -52,9 +52,24 @@ static void HWR_DrawPatchInCache(GLMipmap_t *mipmap,
 	UINT8 *block = mipmap->grInfo.data;
 	UINT8 texel;
 	UINT16 texelu16;
+	INT32 patchwidth;
+
+	// Le cache de textures suit AVEUGLEMENT les decalages de colonnes du patch
+	// (columnofs). Si la donnee est incoherente — patch tronque, lecture ratee de la
+	// carte memoire, lump corrompu — on saute a une adresse arbitraire et le jeu meurt
+	// dans le renderer, sans le moindre message (vecu sur PS Vita : data abort ici, et
+	// error.txt vide, donc ni Z_Malloc ni W_CacheLumpNum n'avaient echoue).
+	// Une donnee invalide doit degrader (texture manquante), pas tuer le jeu.
+	if (!realpatch || !block)
+		return;
+
+	patchwidth = SHORT(realpatch->width);
+
+	if (patchwidth <= 0)
+		return;
 
 	x1 = originx;
-	x2 = x1 + SHORT(realpatch->width);
+	x2 = x1 + patchwidth;
 
 	if (x1 < 0)
 		x = 0;
@@ -92,8 +107,15 @@ static void HWR_DrawPatchInCache(GLMipmap_t *mipmap,
 	for (block += col*bpp; ncols--; block += bpp, xfrac += xfracstep)
 	{
 		INT32 topdelta, prevdelta = -1;
+		INT32 srccol = xfrac>>FRACBITS;
+
+		// columnofs[] n'a que `patchwidth` entrees : lire au-dela, c'est prendre pour
+		// un decalage ce qui n'en est pas un, et suivre ce pointeur n'importe ou.
+		if (srccol < 0 || srccol >= patchwidth)
+			continue;
+
 		patchcol = (const column_t *)((const UINT8 *)realpatch
-		 + LONG(realpatch->columnofs[xfrac>>FRACBITS]));
+		 + LONG(realpatch->columnofs[srccol]));
 
 		scale_y = (pblockheight << FRACBITS) / ptextureheight;
 
