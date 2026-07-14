@@ -65,6 +65,14 @@ static  FBITFIELD   CurrentPolyFlags;
 static  FTextureInfo*  gr_cachetail = NULL;
 static  FTextureInfo*  gr_cachehead = NULL;
 
+#ifdef __vita__
+#include "../../i_system.h" // I_GetPreciseTime (instrumentation du cache textures)
+/* Temps passe a convertir + televerser des textures, cumule sur la frame.
+   Lu et remis a zero par le profileur (sdl/i_video.c). Temporaire. */
+precise_t vita_texupload_time = 0;
+INT32 vita_texupload_count = 0;
+#endif
+
 RGBA_t  myPaletteData[256];
 GLint   screen_width    = 0;               // used by Draw2DLine()
 GLint   screen_height   = 0;
@@ -193,17 +201,27 @@ FUNCPRINTF void GL_DBG_Printf(const char *format, ...)
 #define pglPopMatrix glPopMatrix
 #define pglLoadIdentity glLoadIdentity
 #define pglMultMatrixd glMultMatrixd
+#define pglMultMatrixf glMultMatrixf
 #define pglRotatef glRotatef
 #define pglScalef glScalef
 #define pglTranslatef glTranslatef
 
 /* Drawing Functions */
+#ifdef __vita__
+#define pglColor4ubv glColor4ubv
+#define pglVertexPointer glVertexPointer
+#define pglTexCoordPointer glTexCoordPointer
+#define pglDrawArrays glDrawArrays
+#define pglDrawElements glDrawElements
+#define pglNormalPointer(a,b,c)
+#else
 #define pglColor4ubv glColor4ubv
 #define pglVertexPointer glVertexPointer
 #define pglNormalPointer glNormalPointer
 #define pglTexCoordPointer glTexCoordPointer
 #define pglDrawArrays glDrawArrays
 #define pglDrawElements glDrawElements
+#endif
 #define pglEnableClientState glEnableClientState
 #define pglDisableClientState glDisableClientState
 #define pglClientActiveTexture glClientActiveTexture
@@ -220,7 +238,11 @@ FUNCPRINTF void GL_DBG_Printf(const char *format, ...)
 #define pglMateriali glMateriali
 
 /* Raster functions */
+#ifdef __vita__
+#define pglPixelStorei(a,b)
+#else
 #define pglPixelStorei glPixelStorei
+#endif
 #define pglReadPixels glReadPixels
 
 /* Texture mapping */
@@ -238,8 +260,13 @@ FUNCPRINTF void GL_DBG_Printf(const char *format, ...)
 #define pglDeleteTextures glDeleteTextures
 #define pglBindTexture glBindTexture
 /* texture mapping */ //GL_EXT_copy_texture
+#ifdef __vita__
+#define pglCopyTexImage2D(a,b,c,d,e,f,g,h)
+#define pglCopyTexSubImage2D(a,b,c,d,e,f,g,h)
+#else
 #define pglCopyTexImage2D glCopyTexImage2D
 #define pglCopyTexSubImage2D glCopyTexSubImage2D
+#endif
 
 #else //!STATIC_OPENGL
 
@@ -314,13 +341,13 @@ static PFNglEnableClientState pglEnableClientState;
 typedef void (APIENTRY * PFNglDisableClientState) (GLenum cap);
 static PFNglDisableClientState pglDisableClientState;
 typedef void (APIENTRY * PFNglGenBuffers) (GLsizei n, GLuint *buffers);
-static PFNglGenBuffers pglGenBuffers;
+//
 typedef void (APIENTRY * PFNglBindBuffer) (GLenum target, GLuint buffer);
-static PFNglBindBuffer pglBindBuffer;
+//
 typedef void (APIENTRY * PFNglBufferData) (GLenum target, GLsizei size, const GLvoid *data, GLenum usage);
-static PFNglBufferData pglBufferData;
+//
 typedef void (APIENTRY * PFNglDeleteBuffers) (GLsizei n, const GLuint *buffers);
-static PFNglDeleteBuffers pglDeleteBuffers;
+//
 
 /* Lighting */
 typedef void (APIENTRY * PFNglShadeModel) (GLenum mode);
@@ -374,17 +401,17 @@ static PFNgluBuild2DMipmaps pgluBuild2DMipmaps;
 
 /* 1.3 functions for multitexturing */
 typedef void (APIENTRY *PFNglActiveTexture) (GLenum);
-static PFNglActiveTexture pglActiveTexture;
+//
 typedef void (APIENTRY *PFNglMultiTexCoord2f) (GLenum, GLfloat, GLfloat);
 static PFNglMultiTexCoord2f pglMultiTexCoord2f;
 typedef void (APIENTRY *PFNglMultiTexCoord2fv) (GLenum target, const GLfloat *v);
 static PFNglMultiTexCoord2fv pglMultiTexCoord2fv;
 typedef void (APIENTRY *PFNglClientActiveTexture) (GLenum);
-static PFNglClientActiveTexture pglClientActiveTexture;
+//
 
 // sky dome needs this
 typedef void    (APIENTRY *PFNglColorPointer)       (GLint, GLenum, GLsizei, const GLvoid*);
-static PFNglColorPointer pglColorPointer;
+//
 
 /* 1.2 Parms */
 /* GL_CLAMP_TO_EDGE_EXT */
@@ -408,6 +435,9 @@ static PFNglColorPointer pglColorPointer;
 
 boolean SetupGLfunc(void)
 {
+#ifdef __vita__
+	return true;
+#else
 #ifndef STATIC_OPENGL
 #define GETOPENGLFUNC(func, proc) \
 	func = GetGLFunc(#proc); \
@@ -482,6 +512,7 @@ boolean SetupGLfunc(void)
 #undef GETOPENGLFUNC
 #endif
 	return true;
+#endif /* __vita__ */
 }
 
 #ifdef GL_SHADERS
@@ -780,6 +811,7 @@ static const char *vertex_shaders[] = {
 
 void SetupGLFunc4(void)
 {
+#ifndef __vita__
 	pglActiveTexture = GetGLFunc("glActiveTexture");
 	pglMultiTexCoord2f = GetGLFunc("glMultiTexCoord2f");
 	pglClientActiveTexture = GetGLFunc("glClientActiveTexture");
@@ -815,6 +847,7 @@ void SetupGLFunc4(void)
 
 	// GLU
 	pgluBuild2DMipmaps = GetGLFunc("gluBuild2DMipmaps");
+#endif /* __vita__ */
 }
 
 // jimita
@@ -999,17 +1032,45 @@ EXPORT void HWRAPI(KillShaders) (void)
 	// unused.........................
 }
 
+#ifdef __vita__
+/* vitaGL ne sait pas échantillonner la « texture 0 » : les polygones
+   PF_NoTexture (voile des menus, fills, fondus d'écran) ne s'affichent
+   pas. On les fait passer par le chemin texturé avec un blanc 1x1. */
+static GLuint vita_white_tex = 0;
+static GLuint VitaNoTexture(void)
+{
+	if (!vita_white_tex)
+	{
+		static const UINT32 white_px = 0xFFFFFFFF;
+		pglGenTextures(1, &vita_white_tex);
+		pglBindTexture(GL_TEXTURE_2D, vita_white_tex);
+		pglTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &white_px);
+		tex_downloaded = vita_white_tex;
+	}
+	return vita_white_tex;
+}
+#endif
+
 // -----------------+
 // SetNoTexture     : Disable texture
 // -----------------+
 static void SetNoTexture(void)
 {
+#ifdef __vita__
+	GLuint whitetex = VitaNoTexture();
+	if (tex_downloaded != whitetex && !gl_batching)
+	{
+		pglBindTexture(GL_TEXTURE_2D, whitetex);
+		tex_downloaded = whitetex;
+	}
+#else
 	// Disable texture.
 	if (tex_downloaded != NOTEXTURE_NUM && !gl_batching)
 	{
 		pglBindTexture(GL_TEXTURE_2D, NOTEXTURE_NUM);
 		tex_downloaded = NOTEXTURE_NUM;
 	}
+#endif
 }
 
 static void GLPerspective(GLfloat fovy, GLfloat aspect)
@@ -1038,7 +1099,11 @@ static void GLPerspective(GLfloat fovy, GLfloat aspect)
 	m[1][1] = cotangent;
 	m[2][2] = -(zFar + zNear) / deltaZ;
 	m[3][2] = -2.0f * zNear * zFar / deltaZ;
+#ifdef __vita__
+	glMultMatrixf(&m[0][0]);
+#else
 	pglMultMatrixf(&m[0][0]);
+#endif
 }
 
 // -----------------+
@@ -1796,7 +1861,16 @@ typedef struct
 } PolygonArrayEntry;
 
 FOutVector* finalVertexArray = NULL;// contains subset of sorted vertices and texture coordinates to be sent to gpu
-UINT32* finalVertexIndexArray = NULL;// contains indexes for glDrawElements, taking into account fan->triangles conversion
+#ifdef __vita__
+// vitaGL always reads glDrawElements indices as 16-bit regardless of the type
+// argument, so use UINT16 indices and flush before an index could overflow
+typedef UINT16 batchindex_t;
+#define GL_BATCH_INDEX_TYPE GL_UNSIGNED_SHORT
+#else
+typedef UINT32 batchindex_t;
+#define GL_BATCH_INDEX_TYPE GL_UNSIGNED_INT
+#endif
+batchindex_t* finalVertexIndexArray = NULL;// contains indexes for glDrawElements, taking into account fan->triangles conversion
 //     NOTE have this alloced as 3x finalVertexArray size
 int finalVertexArrayAllocSize = 65536;
 //GLubyte* colorArray = NULL;// contains color data to be sent to gpu, if needed
@@ -1820,7 +1894,7 @@ EXPORT void HWRAPI(StartBatching) (void)
 	if (!finalVertexArray)
 	{
 		finalVertexArray = malloc(finalVertexArrayAllocSize * sizeof(FOutVector));
-		finalVertexIndexArray = malloc(finalVertexArrayAllocSize * 3 * sizeof(UINT32));
+		finalVertexIndexArray = malloc(finalVertexArrayAllocSize * 3 * sizeof(batchindex_t));
 		polygonArray = malloc(polygonArrayAllocSize * sizeof(PolygonArrayEntry));
 		polygonIndexArray = malloc(polygonArrayAllocSize * sizeof(unsigned int));
 		unsortedVertexArray = malloc(unsortedVertexArrayAllocSize * sizeof(FOutVector));
@@ -1985,6 +2059,10 @@ EXPORT void HWRAPI(RenderBatches) (int *sNumPolys, int *sNumVerts, int *sNumCall
 
 	if (currentPolyFlags & PF_NoTexture)
 		currentTexture = 0;
+#ifdef __vita__
+	if (!currentTexture)
+		currentTexture = VitaNoTexture();
+#endif
 	pglBindTexture(GL_TEXTURE_2D, currentTexture);
 	tex_downloaded = currentTexture;
 
@@ -2024,13 +2102,25 @@ EXPORT void HWRAPI(RenderBatches) (int *sNumPolys, int *sNumVerts, int *sNumCall
 
 		int index = polygonIndexArray[polygonReadPos++];
 		int numVerts = polygonArray[index].numVerts;
+#ifdef __vita__
+		// with 16-bit indices the arrays must never grow past 65536 vertices:
+		// draw what has been batched so far and reset instead of reallocating
+		if (finalVertexWritePos + numVerts > finalVertexArrayAllocSize && finalIndexWritePos > 0)
+		{
+			pglDrawElements(GL_TRIANGLES, finalIndexWritePos, GL_BATCH_INDEX_TYPE, finalVertexIndexArray);
+			(*sNumCalls)++;
+			*sNumVerts += finalIndexWritePos;
+			finalVertexWritePos = 0;
+			finalIndexWritePos = 0;
+		}
+#endif
 		// before writing, check if there is enough room
 		// using 'while' instead of 'if' here makes sure that there will *always* be enough room.
 		// probably never will this loop run more than once though
 		while (finalVertexWritePos + numVerts > finalVertexArrayAllocSize)
 		{
 			FOutVector* new_array;
-			unsigned int* new_index_array;
+			batchindex_t* new_index_array;
 			//CONS_Printf("final vert realloc\n");
 			finalVertexArrayAllocSize *= 2;
 			new_array = malloc(finalVertexArrayAllocSize * sizeof(FOutVector));
@@ -2039,8 +2129,8 @@ EXPORT void HWRAPI(RenderBatches) (int *sNumPolys, int *sNumVerts, int *sNumCall
 			finalVertexArray = new_array;
 			// also increase size of index array, 3x of vertex array since
 			// going from fans to triangles increases vertex count to 3x
-			new_index_array = malloc(finalVertexArrayAllocSize * 3 * sizeof(UINT32));
-			memcpy(new_index_array, finalVertexIndexArray, finalIndexWritePos * sizeof(UINT32));
+			new_index_array = malloc(finalVertexArrayAllocSize * 3 * sizeof(batchindex_t));
+			memcpy(new_index_array, finalVertexIndexArray, finalIndexWritePos * sizeof(batchindex_t));
 			free(finalVertexIndexArray);
 			finalVertexIndexArray = new_index_array;
 			// if vertex buffers are reallocated then opengl needs to know too
@@ -2126,7 +2216,7 @@ EXPORT void HWRAPI(RenderBatches) (int *sNumPolys, int *sNumVerts, int *sNumCall
 			}
 			//CONS_Printf("exec draw call\n");
 			// execute draw call
-			pglDrawElements(GL_TRIANGLES, finalIndexWritePos, GL_UNSIGNED_INT, finalVertexIndexArray);
+			pglDrawElements(GL_TRIANGLES, finalIndexWritePos, GL_BATCH_INDEX_TYPE, finalVertexIndexArray);
 			//CONS_Printf("draw call done\n");
 			// update stats
 			(*sNumCalls)++;
@@ -2177,6 +2267,10 @@ EXPORT void HWRAPI(RenderBatches) (int *sNumPolys, int *sNumVerts, int *sNumCall
 		}
 		if (changeTexture)
 		{
+#ifdef __vita__
+			if (!nextTexture)
+				nextTexture = VitaNoTexture();
+#endif
 			// texture should be already ready for use from calls to SetTexture during batch collection
 			pglBindTexture(GL_TEXTURE_2D, nextTexture);
 			tex_downloaded = nextTexture;
@@ -2247,26 +2341,44 @@ EXPORT void HWRAPI(DrawPolygon) (FSurfaceInfo *pSurf, FOutVector *pOutVerts, FUI
 		//CONS_Printf("Batched DrawPolygon\n");
 		if (!pSurf)
 			I_Error("Got a null FSurfaceInfo in batching");// nulls should only come in sky background pic drawing
+		// Bug amont : ces malloc n'etaient JAMAIS verifies. Quand le tas est plein, le
+		// batching ecrit dans un pointeur NULL -> data abort DANS LE RENDU, alors que
+		// la vraie cause est ailleurs (vecu : le prechargement audio saturait le tas).
+		// Une allocation ratee doit faire perdre un polygone, pas planter le jeu.
 		if (polygonArraySize == polygonArrayAllocSize)
 		{
 			PolygonArrayEntry* new_array;
+			unsigned int* new_index_array;
 			// ran out of space, make new array double the size
+			new_array = malloc(polygonArrayAllocSize * 2 * sizeof(PolygonArrayEntry));
+			new_index_array = new_array ? malloc(polygonArrayAllocSize * 2 * sizeof(unsigned int)) : NULL;
+
+			if (!new_array || !new_index_array)
+			{
+				free(new_array);
+				free(new_index_array);
+				return; // plus de memoire : on saute ce polygone
+			}
+
 			polygonArrayAllocSize *= 2;
-			new_array = malloc(polygonArrayAllocSize * sizeof(PolygonArrayEntry));
 			memcpy(new_array, polygonArray, polygonArraySize * sizeof(PolygonArrayEntry));
 			free(polygonArray);
 			polygonArray = new_array;
 			// also need to redo the index array, dont need to copy it though
 			free(polygonIndexArray);
-			polygonIndexArray = malloc(polygonArrayAllocSize * sizeof(unsigned int));
+			polygonIndexArray = new_index_array;
 		}
 
 		while (unsortedVertexArraySize + (int)iNumPts > unsortedVertexArrayAllocSize)
 		{
 			FOutVector* new_array;
 			// need more space for vertices in unsortedVertexArray
+			new_array = malloc(unsortedVertexArrayAllocSize * 2 * sizeof(FOutVector));
+
+			if (!new_array)
+				return; // plus de memoire : on saute ce polygone
+
 			unsortedVertexArrayAllocSize *= 2;
-			new_array = malloc(unsortedVertexArrayAllocSize * sizeof(FOutVector));
 			memcpy(new_array, unsortedVertexArray, unsortedVertexArraySize * sizeof(FOutVector));
 			free(unsortedVertexArray);
 			unsortedVertexArray = new_array;
@@ -2364,7 +2476,11 @@ typedef struct
 	vbo_vertex_t *data;
 } GLSkyVBO;
 
+#ifdef __vita__
+static const boolean gl_ext_arb_vertex_buffer_object = false;
+#else
 static const boolean gl_ext_arb_vertex_buffer_object = true;
+#endif
 
 #define NULL_VBO_VERTEX ((vbo_vertex_t*)NULL)
 #define sky_vbo_x (gl_ext_arb_vertex_buffer_object ? &NULL_VBO_VERTEX->x : &vbo->data[0].x)
@@ -2549,10 +2665,16 @@ static void RenderDome(INT32 skytexture)
 	// activate and specify pointers to arrays
 	pglVertexPointer(3, GL_FLOAT, sizeof(vbo->data[0]), sky_vbo_x);
 	pglTexCoordPointer(2, GL_FLOAT, sizeof(vbo->data[0]), sky_vbo_u);
+#ifdef __vita__
+	/* vitaGL ne lit que des couleurs float : le tableau u8 du dôme serait
+	   interprété comme du bruit (ciel sombre). Pas de dégradé, plein blanc. */
+	pglColor4ubv(white);
+#else
 	pglColorPointer(4, GL_UNSIGNED_BYTE, sizeof(vbo->data[0]), sky_vbo_r);
 
 	// activate color arrays
 	pglEnableClientState(GL_COLOR_ARRAY);
+#endif
 
 	// set transforms
 	pglScalef(1.0f, (float)texh / 230.0f, 1.0f);
@@ -2578,8 +2700,10 @@ static void RenderDome(INT32 skytexture)
 	if (gl_ext_arb_vertex_buffer_object)
 		pglBindBuffer(GL_ARRAY_BUFFER, 0);
 
+#ifndef __vita__
 	// deactivate color array
 	pglDisableClientState(GL_COLOR_ARRAY);
+#endif
 }
 
 EXPORT void HWRAPI(RenderSkyDome) (INT32 tex, INT32 texture_width, INT32 texture_height, FTransform transform)
@@ -2668,9 +2792,11 @@ EXPORT void HWRAPI(SetSpecialState) (hwdspecialstate_t IdState, INT32 Value)
 static float *vertBuffer = NULL;
 static float *normBuffer = NULL;
 static size_t lerpBufferSize = 0;
+#ifndef __vita__
 static short *vertTinyBuffer = NULL;
 static char *normTinyBuffer = NULL;
 static size_t lerpTinyBufferSize = 0;
+#endif
 
 // Static temporary buffer for doing frame interpolation
 // 'size' is the vertex size
@@ -2690,6 +2816,7 @@ static void AllocLerpBuffer(size_t size)
 	normBuffer = malloc(lerpBufferSize);
 }
 
+#ifndef __vita__
 // Static temporary buffer for doing frame interpolation
 // 'size' is the vertex size
 static void AllocLerpTinyBuffer(size_t size)
@@ -2707,6 +2834,7 @@ static void AllocLerpTinyBuffer(size_t size)
 	vertTinyBuffer = malloc(lerpTinyBufferSize);
 	normTinyBuffer = malloc(lerpTinyBufferSize / 2);
 }
+#endif /* !__vita__ */
 
 #ifndef GL_STATIC_DRAW
 #define GL_STATIC_DRAW 0x88E4
@@ -2716,6 +2844,7 @@ static void AllocLerpTinyBuffer(size_t size)
 #define GL_ARRAY_BUFFER 0x8892
 #endif
 
+#ifndef __vita__
 static void CreateModelVBO(mesh_t *mesh, mdlframe_t *frame)
 {
 	int bufferSize = sizeof(vbo64_t)*mesh->numTriangles * 3;
@@ -2828,9 +2957,16 @@ static void CreateModelVBOTiny(mesh_t *mesh, tinyframe_t *frame)
 	// since this is called mid-frame
 	pglBindBuffer(GL_ARRAY_BUFFER, 0);
 }
+#endif /* !__vita__ */
 
 EXPORT void HWRAPI(CreateModelVBOs) (model_t *model)
 {
+#ifdef __vita__
+	// vitaGL only has 128 buffer slots and its glGenBuffers fails silently
+	// once they run out; models are drawn from client arrays instead
+	(void)model;
+	return;
+#else
 	int i;
 	for (i = 0; i < model->numMeshes; i++)
 	{
@@ -2861,6 +2997,7 @@ EXPORT void HWRAPI(CreateModelVBOs) (model_t *model)
 			}
 		}
 	}
+#endif /* __vita__ */
 }
 
 #define BUFFER_OFFSET(i) ((char*)(i))
@@ -2944,15 +3081,30 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, float duration, float 
 		pglCullFace(GL_BACK);
 #endif
 
-	pglPushMatrix(); // should be the same as glLoadIdentity
+#if defined(__vita__)
+	pglLoadIdentity();
+#ifdef USE_FTRANSFORM_MIRROR
+	if (md2_transform.mirror)
+		pglScalef(-md2_transform.scalex, md2_transform.scaley, -md2_transform.scalez);
+	else
+#endif
+	if (md2_transform.flip)
+		pglScalef(md2_transform.scalex, -md2_transform.scaley, -md2_transform.scalez);
+	else
+		pglScalef(md2_transform.scalex, md2_transform.scaley, -md2_transform.scalez);
+	
+	pglRotatef(md2_transform.anglex, 1.0f, 0.0f, 0.0f);
+	pglRotatef(md2_transform.angley+270.0f, 0.0f, 1.0f, 0.0f);
+	pglTranslatef(-md2_transform.x, -md2_transform.z, -md2_transform.y);
+
 	pglTranslatef(pos->x, pos->z, pos->y);
 	if (flipped)
 		scaley = -scaley;
 #ifdef USE_FTRANSFORM_ANGLEZ
-	pglRotatef(pos->anglez, 0.0f, 0.0f, -1.0f); // rotate by slope from Kart
+	pglRotatef(-(pos->anglez), 0.0f, 0.0f, 1.0f); // rotate by slope from Kart
 #endif
-	pglRotatef(pos->anglex, -1.0f, 0.0f, 0.0f);
-	pglRotatef(pos->angley, 0.0f, -1.0f, 0.0f);
+	pglRotatef(-(pos->anglex), 1.0f, 0.0f, 0.0f);
+	pglRotatef(-(pos->angley), 0.0f, 1.0f, 0.0f);
 
 	pglScalef(scalex, scaley, scalez);
 
@@ -2960,6 +3112,24 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, float duration, float 
 
 	if (useTinyFrames)
 		pglScalef(1 / 64.0f, 1 / 64.0f, 1 / 64.0f);
+#else
+	pglPushMatrix(); // should be the same as glLoadIdentity
+	pglTranslatef(pos->x, pos->z, pos->y);
+	if (flipped)
+		scaley = -scaley;
+#ifdef USE_FTRANSFORM_ANGLEZ
+	pglRotatef(-(pos->anglez), 0.0f, 0.0f, 1.0f); // rotate by slope from Kart
+#endif
+	pglRotatef(-(pos->anglex), 1.0f, 0.0f, 0.0f);
+	pglRotatef(-(pos->angley), 0.0f, 1.0f, 0.0f);
+
+	pglScalef(scalex, scaley, scalez);
+
+	useTinyFrames = model->meshes[0].tinyframes != NULL;
+
+	if (useTinyFrames)
+		pglScalef(1 / 64.0f, 1 / 64.0f, 1 / 64.0f);
+#endif
 
 	pglEnableClientState(GL_NORMAL_ARRAY);
 
@@ -2977,15 +3147,47 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, float duration, float 
 
 			if (!nextframe || fpclassify(pol) == FP_ZERO)
 			{
+#ifdef __vita__
+				// no VBOs on Vita (see CreateModelVBOs), and vitaGL only
+				// understands float attributes: convert and draw from RAM
+				float *vertPtr;
+				int j = 0;
+
+				AllocLerpBuffer(mesh->numVertices * sizeof(float) * 3);
+				vertPtr = vertBuffer;
+
+				for (j = 0; j < mesh->numVertices * 3; j++)
+					*vertPtr++ = (float)frame->vertices[j];
+
+				pglVertexPointer(3, GL_FLOAT, 0, vertBuffer);
+				pglTexCoordPointer(2, GL_FLOAT, 0, mesh->uvs);
+				pglDrawElements(GL_TRIANGLES, mesh->numTriangles * 3, GL_UNSIGNED_SHORT, mesh->indices);
+#else
 				pglBindBuffer(GL_ARRAY_BUFFER, frame->vboID);
 				pglVertexPointer(3, GL_SHORT, sizeof(vbotiny_t), BUFFER_OFFSET(0));
 				pglNormalPointer(GL_BYTE, sizeof(vbotiny_t), BUFFER_OFFSET(sizeof(short)*3));
 				pglTexCoordPointer(2, GL_FLOAT, sizeof(vbotiny_t), BUFFER_OFFSET(sizeof(short) * 3 + sizeof(char) * 6));
 				pglDrawElements(GL_TRIANGLES, mesh->numTriangles * 3, GL_UNSIGNED_SHORT, mesh->indices);
 				pglBindBuffer(GL_ARRAY_BUFFER, 0);
+#endif
 			}
 			else
 			{
+#ifdef __vita__
+				// same as below but interpolating straight into floats
+				float *vertPtr;
+				int j = 0;
+
+				AllocLerpBuffer(mesh->numVertices * sizeof(float) * 3);
+				vertPtr = vertBuffer;
+
+				for (j = 0; j < mesh->numVertices * 3; j++)
+					*vertPtr++ = frame->vertices[j] + (pol * (nextframe->vertices[j] - frame->vertices[j]));
+
+				pglVertexPointer(3, GL_FLOAT, 0, vertBuffer);
+				pglTexCoordPointer(2, GL_FLOAT, 0, mesh->uvs);
+				pglDrawElements(GL_TRIANGLES, mesh->numTriangles * 3, GL_UNSIGNED_SHORT, mesh->indices);
+#else
 				short *vertPtr;
 				char *normPtr;
 				int j = 0;
@@ -3006,6 +3208,7 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, float duration, float 
 				pglNormalPointer(GL_BYTE, 0, normTinyBuffer);
 				pglTexCoordPointer(2, GL_FLOAT, 0, mesh->uvs);
 				pglDrawElements(GL_TRIANGLES, mesh->numTriangles * 3, GL_UNSIGNED_SHORT, mesh->indices);
+#endif
 			}
 		}
 		else
@@ -3018,6 +3221,12 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, float duration, float 
 
 			if (!nextframe || fpclassify(pol) == FP_ZERO)
 			{
+#ifdef __vita__
+				// no VBOs on Vita (see CreateModelVBOs): draw from the model data
+				pglVertexPointer(3, GL_FLOAT, 0, frame->vertices);
+				pglTexCoordPointer(2, GL_FLOAT, 0, mesh->uvs);
+				pglDrawArrays(GL_TRIANGLES, 0, mesh->numTriangles * 3);
+#else
 				// Zoom! Take advantage of just shoving the entire arrays to the GPU.
 				pglBindBuffer(GL_ARRAY_BUFFER, frame->vboID);
 				pglVertexPointer(3, GL_FLOAT, sizeof(vbo64_t), BUFFER_OFFSET(0));
@@ -3026,6 +3235,7 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, float duration, float 
 
 				pglDrawArrays(GL_TRIANGLES, 0, mesh->numTriangles * 3);
 				pglBindBuffer(GL_ARRAY_BUFFER, 0);
+#endif
 			}
 			else
 			{
@@ -3055,7 +3265,24 @@ static void DrawModelEx(model_t *model, INT32 frameIndex, float duration, float 
 
 	pglDisableClientState(GL_NORMAL_ARRAY);
 
+#if defined(__vita__)
+	pglLoadIdentity();
+#ifdef USE_FTRANSFORM_MIRROR
+	if (md2_transform.mirror)
+		pglScalef(-md2_transform.scalex, md2_transform.scaley, -md2_transform.scalez);
+	else
+#endif
+	if (md2_transform.flip)
+		pglScalef(md2_transform.scalex, -md2_transform.scaley, -md2_transform.scalez);
+	else
+		pglScalef(md2_transform.scalex, md2_transform.scaley, -md2_transform.scalez);
+	
+	pglRotatef(md2_transform.anglex, 1.0f, 0.0f, 0.0f);
+	pglRotatef(md2_transform.angley+270.0f, 0.0f, 1.0f, 0.0f);
+	pglTranslatef(-md2_transform.x, -md2_transform.z, -md2_transform.y);
+#else
 	pglPopMatrix(); // should be the same as glLoadIdentity
+#endif
 	pglDisable(GL_CULL_FACE);
 	pglDisable(GL_NORMALIZE);
 }
@@ -3250,6 +3477,9 @@ EXPORT void HWRAPI(FlushScreenTextures) (void)
 // Create Screen to fade from
 EXPORT void HWRAPI(StartScreenWipe) (void)
 {
+#ifdef __vita__
+	return; // pas de capture d'écran possible (glCopyTexImage2D absent)
+#else
 	INT32 texsize = 2048;
 	boolean firstTime = (startScreenWipe == 0);
 
@@ -3276,11 +3506,15 @@ EXPORT void HWRAPI(StartScreenWipe) (void)
 		pglCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, texsize, texsize);
 
 	tex_downloaded = startScreenWipe;
+#endif /* !__vita__ */
 }
 
 // Create Screen to fade to
 EXPORT void HWRAPI(EndScreenWipe)(void)
 {
+#ifdef __vita__
+	return; // pas de capture d'écran possible (glCopyTexImage2D absent)
+#else
 	INT32 texsize = 2048;
 	boolean firstTime = (endScreenWipe == 0);
 
@@ -3307,11 +3541,19 @@ EXPORT void HWRAPI(EndScreenWipe)(void)
 		pglCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, texsize, texsize);
 
 	tex_downloaded = endScreenWipe;
+#endif /* !__vita__ */
 }
 
 // Draw the last scene under the intermission
 EXPORT void HWRAPI(DrawIntermissionBG)(void)
 {
+#ifdef __vita__
+	/* la « dernière scène » n'a pas pu être capturée (glCopyTexImage2D
+	   absent) : fond noir propre sous l'écran de résultats */
+	pglClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	pglClear(GL_COLOR_BUFFER_BIT);
+	return;
+#else
 	float xfix, yfix;
 	INT32 texsize = 2048;
 
@@ -3350,11 +3592,15 @@ EXPORT void HWRAPI(DrawIntermissionBG)(void)
 	pglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
 	tex_downloaded = screentexture;
+#endif /* !__vita__ */
 }
 
 // Do screen fades!
 EXPORT void HWRAPI(DoScreenWipe)(void)
 {
+#ifdef __vita__
+	return; // jamais appelé (F_RunWipe saute le wipe sous vitaGL), par sûreté
+#else
 	INT32 texsize = 2048;
 	float xfix, yfix;
 
@@ -3436,6 +3682,7 @@ EXPORT void HWRAPI(DoScreenWipe)(void)
 	pglActiveTexture(GL_TEXTURE0);
 	pglClientActiveTexture(GL_TEXTURE0);
 	tex_downloaded = endScreenWipe;
+#endif /* !__vita__ */
 }
 
 // Create a texture from the screen.
@@ -3571,3 +3818,5 @@ EXPORT void HWRAPI(DrawScreenFinalTexture)(int width, int height)
 }
 
 #endif //HWRENDER
+
+

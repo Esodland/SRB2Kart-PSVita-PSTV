@@ -182,6 +182,46 @@ consvar_t cv_showhud = {"showhud", "Yes", CV_CALL,  CV_YesNo, R_SetViewSize, 0, 
 consvar_t cv_translucenthud = {"translucenthud", "10", CV_SAVE, translucenthud_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
 
 consvar_t cv_translucency = {"translucency", "On", CV_SAVE, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
+
+#ifdef __vita__
+// Mode graphique de la console (menu Video Options). Aucun de ces reglages n'est
+// un CV_NETVAR : ils sont purement locaux au client, donc AUCUN risque de
+// desynchro en ligne (cf. la regle absolue du portage).
+static void R_VitaQuality_OnChange(void);
+static CV_PossibleValue_t vitaquality_cons_t[] = {{0, "Quality"}, {1, "Performance"}, {0, NULL}};
+consvar_t cv_vitaquality = {"vitaquality", "Quality", CV_SAVE|CV_CALL, vitaquality_cons_t,
+	R_VitaQuality_OnChange, 0, NULL, NULL, 0, 0, NULL};
+
+static void R_VitaQuality_OnChange(void)
+{
+	const boolean perf = (cv_vitaquality.value != 0);
+
+	/* La resolution de rendu est LE levier : le jeu est GPU-bound (mesure du
+	   13/07/2026 : 15,6 ms de presentation sur une frame de 25 ms). On passe par
+	   le systeme de resolution DU JEU (setmodeneeded -> VID_SetMode), qui se
+	   charge de persister le choix et de prevenir qu'il faut relancer — la
+	   surface GXM ne se redimensionne pas a chaud. */
+	setmodeneeded = VID_GetModeForSize(perf ? 640 : 960, perf ? 368 : 544) + 1;
+
+	// Sprites au loin : « Infinite » par defaut ! Chaque sprite visible coute du
+	// tri et de la geometrie -> le levier CPU le plus direct.
+	CV_Set(&cv_drawdist, perf ? "2048" : "Infinite");
+	CV_Set(&cv_drawdist_precip, perf ? "None" : "1024");
+
+	// Le skybox fait rendre une SECONDE vue de la scene.
+	CV_Set(&cv_skybox, perf ? "Off" : "On");
+
+#ifdef HWRENDER
+	// Modeles 3D : sous vitaGL, chaque frame de modele est reconvertie
+	// short -> float a CHAQUE dessin (vitaGL n'accepte que du float) — cout CPU
+	// pur, proportionnel au nombre de karts a l'ecran.
+	CV_Set(&cv_grmdls, perf ? "Off" : "On");
+	CV_Set(&cv_grspritebillboarding, perf ? "Off" : "On");
+	// (cv_grdynamiclighting / cv_grcoronas : hors ALAM_LIGHTING, pas compiles ici)
+#endif
+}
+#endif
+
 consvar_t cv_drawdist = {"drawdist", "Infinite", CV_SAVE, drawdist_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
 //consvar_t cv_drawdist_nights = {"drawdist_nights", "2048", CV_SAVE, drawdist_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
 consvar_t cv_drawdist_precip = {"drawdist_precip", "1024", CV_SAVE, drawdist_precip_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
@@ -1547,6 +1587,17 @@ void R_RegisterEngineStuff(void)
 	CV_RegisterVar(&cv_grfakecontrast);
 	CV_RegisterVar(&cv_grshearing);
 	CV_RegisterVar(&cv_grshaders);
+#endif
+
+#ifdef __vita__
+	// APRES tous les reglages qu'il pilote : son OnChange les modifie.
+	{
+		{
+			extern consvar_t cv_vitakeepsfx; /* s_sound.c */
+			CV_RegisterVar(&cv_vitaquality);
+			CV_RegisterVar(&cv_vitakeepsfx);
+		}
+	}
 #endif
 
 #ifdef HWRENDER

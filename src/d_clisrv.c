@@ -1126,7 +1126,7 @@ typedef enum
 	CL_ABORTED,
 	CL_ASKFULLFILELIST,
 	CL_CONFIRMCONNECT,
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 	CL_PREPAREHTTPFILES,
 	CL_DOWNLOADHTTPFILES,
 #endif
@@ -1137,7 +1137,7 @@ static void GetPackets(void);
 
 static cl_mode_t cl_mode = CL_SEARCHING;
 
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 char http_source[MAX_MIRROR_LENGTH];
 #endif
 
@@ -1192,7 +1192,7 @@ static inline void CL_DrawConnectionStatus(void)
 	V_DrawFadeScreen(0xFF00, 16);
 
 	if (cl_mode != CL_DOWNLOADFILES && cl_mode != CL_LOADFILES && cl_mode != CL_CHECKFILES
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 	&& cl_mode != CL_DOWNLOADHTTPFILES
 #endif
 	)
@@ -1242,7 +1242,7 @@ static inline void CL_DrawConnectionStatus(void)
 					cltext = M_GetText("Requesting to join...");
 
 				break;
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 			case CL_PREPAREHTTPFILES:
 				cltext = M_GetText("Waiting to download files...");
 				break;
@@ -1336,7 +1336,11 @@ static inline void CL_DrawConnectionStatus(void)
 			}
 
 			V_DrawCenteredString(BASEVIDWIDTH/2, BASEVIDHEIGHT-58-30, 0,
+#ifdef HAVE_CURL_MULTI
 				va(M_GetText("%s downloading"), ((cl_mode == CL_DOWNLOADHTTPFILES) ? "\x82""HTTP" : "\x85""Direct")));
+#else
+				va(M_GetText("%s downloading"), "\x85""Direct"));
+#endif
 			V_DrawCenteredString(BASEVIDWIDTH/2, BASEVIDHEIGHT-58-22, V_YELLOWMAP,
 				va(M_GetText("\"%s\""), tempname));
 			V_DrawString(BASEVIDWIDTH/2-128, BASEVIDHEIGHT-58, V_20TRANS|V_MONOSPACE,
@@ -2120,7 +2124,7 @@ static void M_ConfirmConnect(event_t *ev)
 		{
 			if (totalfilesrequestednum > 0)
 			{
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 				if (http_source[0] == '\0' || curl_failedwebdownload)
 #endif
 				{
@@ -2133,7 +2137,7 @@ static void M_ConfirmConnect(event_t *ev)
 						cl_mode = CL_LEGACYREQUESTFAILED;
 					}
 				}
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 				else
 					cl_mode = CL_PREPAREHTTPFILES;
 #endif
@@ -2154,6 +2158,23 @@ static void M_ConfirmConnect(event_t *ev)
 #endif
 }
 
+#ifdef __vita__
+/* Le moteur Doom ne sait pas DECHARGER un WAD : une fois les addons d'un serveur en
+   memoire, il faut relancer le jeu pour en rejoindre un autre. Sur PC, le message
+   d'origine se contente de le DIRE (« Please restart SRB2Kart ») et laisse le joueur
+   se debrouiller. Sur console, quitter puis relancer depuis la LiveArea est penible :
+   on propose donc de le faire, et la Vita sait recharger son application. */
+static void CL_RestartResponse(INT32 ch)
+{
+	extern void I_RestartApp(void);
+
+	if (ch != 'y' && ch != KEY_ENTER)
+		return; /* refus : on reste sur le jeu, sans rejoindre */
+
+	I_RestartApp();
+}
+#endif
+
 static boolean CL_FinishedFileList(void)
 {
 	INT32 i;
@@ -2169,12 +2190,21 @@ static boolean CL_FinishedFileList(void)
 		D_QuitNetGame();
 		CL_Reset();
 		D_StartTitle();
+#ifdef __vita__
+		M_StartMessage(M_GetText(
+			"You have too many WAD files loaded\n"
+			"to add the ones this server uses.\n\n"
+			"Restart SRB2Kart now to clear them?\n\n"
+			"(Press 'Y' to restart, ESC to cancel)\n"
+		), CL_RestartResponse, MM_YESNO);
+#else
 		M_StartMessage(M_GetText(
 			"You have too many WAD files loaded\n"
 			"to add ones the server is using.\n"
 			"Please restart SRB2Kart before connecting.\n\n"
 			"Press ESC\n"
 		), NULL, MM_NOTHING);
+#endif
 		return false;
 	}
 	else if (i == 2) // cannot join for some reason
@@ -2182,6 +2212,16 @@ static boolean CL_FinishedFileList(void)
 		D_QuitNetGame();
 		CL_Reset();
 		D_StartTitle();
+#ifdef __vita__
+		M_StartMessage(M_GetText(
+			"You have the wrong addons loaded.\n\n"
+			"SRB2Kart must restart to clear them;\n"
+			"it will then download whatever this\n"
+			"server needs when you rejoin.\n\n"
+			"Restart now?\n"
+			"(Press 'Y' to restart, ESC to cancel)\n"
+		), CL_RestartResponse, MM_YESNO);
+#else
 		M_StartMessage(M_GetText(
 			"You have the wrong addons loaded.\n\n"
 			"To play on this server, restart\n"
@@ -2190,6 +2230,7 @@ static boolean CL_FinishedFileList(void)
 			"everything you need when you join.\n\n"
 			"Press ESC\n"
 		), NULL, MM_NOTHING);
+#endif
 		return false;
 	}
 	else if (i == 1)
@@ -2212,7 +2253,7 @@ static boolean CL_FinishedFileList(void)
 	{
 		// must download something
 		// can we, though?
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 		if (http_source[0] == '\0' || curl_failedwebdownload)
 #endif
 		{
@@ -2234,7 +2275,7 @@ static boolean CL_FinishedFileList(void)
 			}
 		}
 
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 		if (!curl_failedwebdownload)
 #endif
 		{
@@ -2280,7 +2321,7 @@ static boolean CL_FinishedFileList(void)
 			Z_Free(downloadsize);
 			cl_mode = CL_CONFIRMCONNECT;
 		}
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 		else
 		{
 			if (CL_SendRequestFile())
@@ -2335,7 +2376,7 @@ static boolean CL_ServerConnectionSearchTicker(tic_t *asksent)
 
 		if (client)
 		{
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 			if (serverlist[i].info.httpsource[0])
 				strncpy(http_source, serverlist[i].info.httpsource, MAX_MIRROR_LENGTH);
 			else
@@ -2420,7 +2461,7 @@ static boolean CL_ServerConnectionTicker(const char *tmpsave, tic_t *oldtic, tic
 			if (!CL_FinishedFileList())
 				return false;
 			break;
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 		case CL_PREPAREHTTPFILES:
 			if (http_source[0])
 			{
@@ -2631,9 +2672,10 @@ static void CL_ConnectToServer(void)
 {
 	INT32 pnumnodes, nodewaited = doomcom->numnodes, i;
 	tic_t oldtic;
-#ifndef NONET
+	// asksent aussi en NONET : le ticker fait "*asksent" dans les états
+	// CL_SETUPFILES/CL_ASKJOIN/CL_WAITJOINRESPONSE, traversés même pour une
+	// partie locale — lui passer NULL plantait au lancement d'une course
 	tic_t asksent;
-#endif
 #ifdef JOININGAME
 	XBOXSTATIC char tmpsave[264];
 
@@ -2702,7 +2744,7 @@ static void CL_ConnectToServer(void)
 #ifndef NONET
 		if (!CL_ServerConnectionTicker(tmpsave, &oldtic, &asksent))
 #else
-		if (!CL_ServerConnectionTicker((char*)NULL, &oldtic, (tic_t *)NULL))
+		if (!CL_ServerConnectionTicker((char*)NULL, &oldtic, &asksent))
 #endif
 		{
 			if (P_PartialAddGetStage() >= 0)
@@ -3037,7 +3079,7 @@ static void Command_connect(void)
 
 	server = false;
 
-	if (!stricmp(COM_Argv(1), "self"))
+	if (!strcasecmp(COM_Argv(1), "self"))
 	{
 		servernode = 0;
 		server = true;
@@ -3047,7 +3089,7 @@ static void Command_connect(void)
 	else
 	{
 		// used in menu to connect to a server in the list
-		if (netgame && !stricmp(COM_Argv(1), "node"))
+		if (netgame && !strcasecmp(COM_Argv(1), "node"))
 		{
 			servernode = (SINT8)atoi(COM_Argv(2));
 		}
@@ -3062,7 +3104,7 @@ static void Command_connect(void)
 			netgame = true;
 			multiplayer = true;
 
-			if (!stricmp(COM_Argv(1), "any"))
+			if (!strcasecmp(COM_Argv(1), "any"))
 				servernode = BROADCASTADDR;
 			else if (I_NetMakeNodewPort && COM_Argc() >= 3)
 				servernode = I_NetMakeNodewPort(COM_Argv(1), COM_Argv(2));
@@ -3270,7 +3312,7 @@ void CL_Reset(void)
 	serverisfull = false;
 	connectiontimeout = (tic_t)cv_nettimeout.value; //reset this temporary hack
 
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 	curl_failedwebdownload = false;
 	curl_transfers = 0;
 	curl_running = false;
@@ -3316,7 +3358,7 @@ SINT8 nametonum(const char *name)
 	}
 
 	for (i = 0; i < MAXPLAYERS; i++)
-		if (playeringame[i] && !stricmp(player_names[i], name))
+		if (playeringame[i] && !strcasecmp(player_names[i], name))
 			return (SINT8)i;
 
 	CONS_Printf(M_GetText("There is no player named \"%s\"\n"), name);
@@ -3469,7 +3511,9 @@ static void Command_BanIP(void)
 			if (I_SetBanReason)
 				I_SetBanReason(reason);
 
+#ifndef NONET
 			D_SaveBan();
+#endif
 		}
 		else
 		{
@@ -3648,7 +3692,9 @@ static void Got_KickCmd(UINT8 **p, INT32 playernum)
 						I_SetUnbanTime(NO_BAN_TIME);
 				}
 
+#ifndef NONET
 				D_SaveBan();
+#endif
 			}
 		}
 	}
@@ -3785,7 +3831,7 @@ static void Got_KickCmd(UINT8 **p, INT32 playernum)
 	}
 }
 
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 /** Add a login for HTTP downloads. If the
   * user/password is missing, remove it.
   *
@@ -3923,7 +3969,7 @@ void D_ClientServerInit(void)
 	COM_AddCommand("reloadbans", Command_ReloadBan);
 	COM_AddCommand("connect", Command_connect);
 	COM_AddCommand("nodes", Command_Nodes);
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 	COM_AddCommand("set_http_login", Command_set_http_login);
 	COM_AddCommand("list_http_logins", Command_list_http_logins);
 #endif
@@ -3968,8 +4014,13 @@ static void ResetNode(INT32 node)
 	nodewaiting[node] = 0;
 	playerpernode[node] = 0;
 	sendingsavegame[node] = false;
-	bannednode[node].banid = SIZE_MAX;
-	bannednode[node].timeleft = NO_BAN_TIME;
+	// NULL tant que le réseau n'est pas initialisé (toujours le cas en NONET) ;
+	// même garde que le "if (bannednode && ...)" du traitement des connexions
+	if (bannednode)
+	{
+		bannednode[node].banid = SIZE_MAX;
+		bannednode[node].timeleft = NO_BAN_TIME;
+	}
 }
 
 void SV_ResetServer(void)

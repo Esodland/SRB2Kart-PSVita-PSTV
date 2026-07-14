@@ -46,6 +46,9 @@
 #if defined (_WIN32_WCE) || defined (DC) || defined (_PSP) || defined (_NDS)
 #define MAXVIDWIDTH 320
 #define MAXVIDHEIGHT 200
+#elif defined (__vita__)
+#define MAXVIDWIDTH 960
+#define MAXVIDHEIGHT 544
 #elif defined (GP2X)
 #define MAXVIDWIDTH 320 //720
 #define MAXVIDHEIGHT 240 //576

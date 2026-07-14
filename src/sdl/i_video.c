@@ -72,6 +72,9 @@
 #include "../i_video.h"
 #include "../console.h"
 #include "../command.h"
+#ifdef __vita__
+#include "../r_main.h" // cv_vitaquality (mode graphique : Quality / Performance)
+#endif
 #include "sdlmain.h"
 #include "../i_system.h"
 #ifdef HWRENDER
@@ -86,8 +89,26 @@
 #include "../discord.h"
 #endif
 
+#ifdef __vita__
+#include <vitasdk.h>
+#ifdef HWRENDER
+#include <vitaGL.h> // seulement pour le renderer OpenGL (NOHW=0)
+#endif
+/* Rendu logiciel : chemin SDL2 générique (renderer GXM natif du port SDL2
+   VitaSDK). L'ancien chemin vita2d du port 2019 supposait le fork SDL2 de
+   Rinnegatamante construit SUR vita2d ; avec le SDL2 officiel, vita2d n'est
+   jamais initialisé -> texture NULL -> data abort au premier I_SetPalette. */
+#endif
+
 // maximum number of windowed modes (see windowedModes[][])
 #define MAXWINMODES (18)
+
+#if defined(__vita__) && !defined(FORCE_SW_RENDERER)
+// La console n'a que 4 resolutions d'affichage : la liste du menu s'y limite.
+#define VITA_NUM_MODES (4)
+#undef MAXWINMODES
+#define MAXWINMODES VITA_NUM_MODES
+#endif
 
 /**	\brief
 */
@@ -151,27 +172,89 @@ static SDL_bool      havefocus = SDL_TRUE;
 static const char *fallback_resolution_name = "Fallback";
 
 // windowed video modes from which to choose from.
-static INT32 windowedModes[MAXWINMODES][2] =
-{
-	{1920,1200}, // 1.60,6.00
-	{1920,1080}, // 1.66
-	{1680,1050}, // 1.60,5.25
-	{1600,1200}, // 1.33
-	{1600, 900}, // 1.66
-	{1366, 768}, // 1.66
-	{1440, 900}, // 1.60,4.50
-	{1280,1024}, // 1.33?
-	{1280, 960}, // 1.33,4.00
-	{1280, 800}, // 1.60,4.00
-	{1280, 720}, // 1.66
-	{1152, 864}, // 1.33,3.60
-	{1024, 768}, // 1.33,3.20
-	{ 800, 600}, // 1.33,2.50
-	{ 640, 480}, // 1.33,2.00
-	{ 640, 400}, // 1.60,2.00
-	{ 320, 240}, // 1.33,1.00
-	{ 320, 200}, // 1.60,1.00
-};
+#ifdef __SWITCH__
+	static INT32 windowedModes[MAXWINMODES][2] =
+	{
+		{1920,1080}, // 1.66
+		{1680, 945}, 
+		{1600, 900}, // 1.66
+		{1366, 768}, // 1.66
+		{1440, 810}, 
+		{1280, 720}, // 1.66
+		{1152, 864}, // 1.33,3.60
+		{1152, 648},
+		{1024, 768}, // 1.33,3.20
+		{1024, 576}, 
+		{ 800, 600}, // 1.33,2.50
+		{ 800, 450}, 
+		{ 640, 480}, // 1.33,2.00
+		{ 640, 400}, // 1.60,2.00
+		{ 640, 360},
+		{ 320, 240}, // 1.33,1.00
+		{ 320, 200}, // 1.60,1.00
+		{ 320, 180},
+	};
+#elif defined(__vita__)
+#ifdef FORCE_SW_RENDERER
+	static INT32 windowedModes[MAXWINMODES][2] =
+	{
+		{ 960, 544},
+		{ 960, 544},
+		{ 960, 544},
+		{ 960, 544},
+		{ 960, 544},
+		{ 960, 544},
+		{ 960, 544},
+		{ 960, 544},
+		{ 480, 272},
+		{ 960, 544},
+		{ 800, 600}, // 1.33,2.50
+		{ 800, 450},
+		{ 640, 480}, // 1.33,2.00
+		{ 640, 400}, // 1.60,2.00
+		{ 640, 360},
+		{ 320, 240}, // 1.33,1.00
+		{ 320, 200}, // 1.60,1.00
+		{ 320, 180},
+	};
+#else
+	/* Les SEULES resolutions que le controleur d'affichage de la console sait
+	   presenter (il upscale ensuite vers la dalle en MATERIEL, gratuitement) —
+	   ce sont aussi celles que vitaGL gere (voir DISPLAY_STRIDE dans vitaGL.c).
+	   Moins de pixels = moins de travail GPU, et le jeu est GPU-bound.
+	   Toute la chaine (surface GXM, fenetre SDL, vid.width) doit utiliser LA
+	   MEME, sinon le jeu dessine dans un coin de l'ecran (bug 12). */
+	static INT32 windowedModes[VITA_NUM_MODES][2] =
+	{
+		{ 960, 544}, // 522 240 px — natif
+		{ 720, 408}, // 293 760 px — 56 %
+		{ 640, 368}, // 235 520 px — 45 %
+		{ 480, 272}, // 130 560 px — 25 %
+	};
+#endif
+#else
+	static INT32 windowedModes[MAXWINMODES][2] =
+	{
+		{1920,1200}, // 1.60,6.00
+		{1920,1080}, // 1.66
+		{1680,1050}, // 1.60,5.25
+		{1600,1200}, // 1.33
+		{1600, 900}, // 1.66
+		{1366, 768}, // 1.66
+		{1440, 900}, // 1.60,4.50
+		{1280,1024}, // 1.33?
+		{1280, 960}, // 1.33,4.00
+		{1280, 800}, // 1.60,4.00
+		{1280, 720}, // 1.66
+		{1152, 864}, // 1.33,3.60
+		{1024, 768}, // 1.33,3.20
+		{ 800, 600}, // 1.33,2.50
+		{ 640, 480}, // 1.33,2.00
+		{ 640, 400}, // 1.60,2.00
+		{ 320, 240}, // 1.33,1.00
+		{ 320, 200}, // 1.60,1.00
+	};
+#endif
 
 static void Impl_VideoSetupSDLBuffer(void);
 static void Impl_VideoSetupBuffer(void);
@@ -207,7 +290,13 @@ static void SDLSetMode(INT32 width, INT32 height, SDL_bool fullscreen)
 				SDL_SetWindowFullscreen(window, 0);
 			}
 			// Reposition window only in windowed mode
-			SDL_SetWindowSize(window, width, height);
+			#if defined (__SWITCH__)
+				SDL_SetWindowSize(window, 1920, 1080);
+			#elif defined (__vita__)
+				// écran fixe 960x544, ne jamais rétrécir la fenêtre
+			#else
+				SDL_SetWindowSize(window, width, height);
+			#endif
 			SDL_SetWindowPosition(window,
 				SDL_WINDOWPOS_CENTERED_DISPLAY(SDL_GetWindowDisplayIndex(window)),
 				SDL_WINDOWPOS_CENTERED_DISPLAY(SDL_GetWindowDisplayIndex(window))
@@ -219,7 +308,9 @@ static void SDLSetMode(INT32 width, INT32 height, SDL_bool fullscreen)
 		Impl_CreateWindow(fullscreen);
 		Impl_SetWindowIcon();
 		wasfullscreen = fullscreen;
+#ifndef __vita__ // écran fixe 960x544, ne jamais rétrécir la fenêtre
 		SDL_SetWindowSize(window, width, height);
+#endif
 		if (fullscreen)
 		{
 			SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -236,7 +327,9 @@ static void SDLSetMode(INT32 width, INT32 height, SDL_bool fullscreen)
 	if (rendermode == render_soft)
 	{
 		SDL_RenderClear(renderer);
+#ifndef __vita__ // voir Impl_CreateWindow : étirement plein écran via RenderCopy
 		SDL_RenderSetLogicalSize(renderer, width, height);
+#endif
 		// Set up Texture
 		realwidth = width;
 		realheight = height;
@@ -245,6 +338,11 @@ static void SDLSetMode(INT32 width, INT32 height, SDL_bool fullscreen)
 			SDL_DestroyTexture(texture);
 		}
 
+#ifdef __vita__
+		// ABGR8888 : format natif du renderer GXM de SDL2-Vita, garanti supporté
+		bpp = 32;
+		sw_texture_format = SDL_PIXELFORMAT_ABGR8888;
+#else
 		if (!usesdl2soft)
 		{
 			sw_texture_format = SDL_PIXELFORMAT_RGB565;
@@ -254,6 +352,7 @@ static void SDLSetMode(INT32 width, INT32 height, SDL_bool fullscreen)
 			bpp = 32;
 			sw_texture_format = SDL_PIXELFORMAT_RGBA8888;
 		}
+#endif
 
 		texture = SDL_CreateTexture(renderer, sw_texture_format, SDL_TEXTUREACCESS_STREAMING, width, height);
 
@@ -1411,6 +1510,96 @@ static inline boolean I_SkipFrame(void)
 //
 static SDL_Rect src_rect = { 0, 0, 0, 0 };
 
+#ifdef __vita__
+/* ------------------------------------------------------------------------
+   RESOLUTION DE RENDU (levier GPU du mode Performance).
+   Mesure du 13/07/2026 : la presentation coute ~15,6 ms sur une frame de 25 ms
+   — le jeu est GPU-bound, pas CPU-bound. Reduire le travail CPU (modeles,
+   distance d'affichage) ne sert donc quasiment a rien ; il faut baisser le
+   nombre de PIXELS. vitaGL accepte 480/640/720/960 de large et le controleur
+   d'affichage de la console upscale en materiel, sans coût.
+       960x544 = 522 240 px (Quality)
+       640x368 = 235 520 px (Performance) -> 45 %
+   Le choix ne peut PAS venir de la cvar : le fichier de config est charge APRES
+   I_StartupGraphics. On le persiste donc dans un petit fichier, comme
+   renderer.txt. Changer de mode demande un redemarrage du jeu.
+   ------------------------------------------------------------------------ */
+#define VITA_GFXMODE_FILE "ux0:data/srb2kart/gfxmode.txt"
+
+/* La resolution REELLEMENT active (celle de la surface GXM). La cvar scr_width
+   du jeu, elle, peut deja porter le prochain choix : la surface ne peut pas
+   etre redimensionnee a chaud, il faut relancer. */
+INT32 vita_render_w = 960, vita_render_h = 544;
+
+/* Persiste la resolution choisie : le fichier de config du jeu est charge APRES
+   I_StartupGraphics, on ne peut donc pas lire cv_scr_width a l'init. */
+void VitaGfx_SaveRes(INT32 w, INT32 h)
+{
+	SceUID fd = sceIoOpen(VITA_GFXMODE_FILE,
+		SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
+	if (fd >= 0)
+	{
+		char buf[32];
+		int n = snprintf(buf, sizeof buf, "%dx%d\n", (int)w, (int)h);
+		sceIoWrite(fd, buf, n);
+		sceIoClose(fd);
+	}
+}
+
+static void VitaGfx_Init(void)
+{
+	SceUID fd = sceIoOpen(VITA_GFXMODE_FILE, SCE_O_RDONLY, 0);
+
+	if (fd >= 0)
+	{
+		char buf[32] = {0};
+		int w = 0, h = 0;
+		int n = sceIoRead(fd, buf, sizeof(buf) - 1);
+		sceIoClose(fd);
+
+		if (n > 0 && sscanf(buf, "%dx%d", &w, &h) == 2)
+		{
+			int i;
+			for (i = 0; i < VITA_NUM_MODES; i++) // n'accepter qu'un mode valide
+			{
+				if (windowedModes[i][0] == w && windowedModes[i][1] == h)
+				{
+					vita_render_w = w;
+					vita_render_h = h;
+					break;
+				}
+			}
+		}
+	}
+}
+
+#endif
+
+#ifdef __vita__
+/* Pendant le chargement, le jeu presente DEJA des frames (chaque CONS_Printf de
+   con_startup fait un I_FinishUpdate) : sans rien faire, la console reprendrait
+   l'ecran des ~60 %.
+   PIEGE : la bascule d'ecran de vitaGL est ASYNCHRONE — vglStopRendering ne fait
+   qu'empiler la frame dans la file d'affichage du GPU (sceGxmDisplayQueueAddEntry),
+   et c'est un thread systeme qui appelle sceDisplaySetFrameBuf plus tard. Re-armer
+   juste apres la presentation ne suffit donc pas : la frame GL nous repasse dessus
+   ensuite. Il faut attendre que la file soit videe (sceGxmDisplayQueueFinish)
+   AVANT de reprendre l'ecran. Ce petit blocage ne coute rien : on est en train de
+   charger. VitaBoot_Done() (fin de D_SRB2Main) coupe le robinet. */
+#define VITA_KEEP_BOOTSCREEN() \
+	do { \
+		extern int VitaBoot_Active(void); \
+		extern int psvDebugScreenRearm(void); \
+		if (VitaBoot_Active()) \
+		{ \
+			sceGxmDisplayQueueFinish(); \
+			psvDebugScreenRearm(); \
+		} \
+	} while (0)
+#else
+#define VITA_KEEP_BOOTSCREEN() do {} while (0)
+#endif
+
 void I_FinishUpdate(void)
 {
 	if (rendermode == render_none)
@@ -1419,7 +1608,10 @@ void I_FinishUpdate(void)
 	SCR_CalculateFPS();
 
 	if (I_SkipFrame())
+	{
+		VITA_KEEP_BOOTSCREEN();
 		return;
+	}
 
 	if (cv_ticrate.value)
 		SCR_DisplayTicRate();
@@ -1434,6 +1626,7 @@ void I_FinishUpdate(void)
 
 	if (rendermode == render_soft && screens[0])
 	{
+
 		if (!bufSurface) //Double-Check
 		{
 			Impl_VideoSetupSDLBuffer();
@@ -1444,21 +1637,31 @@ void I_FinishUpdate(void)
 			SDL_BlitSurface(bufSurface, &src_rect, vidSurface, &src_rect);
 			// Fury -- there's no way around UpdateTexture, the GL backend uses it anyway
 			SDL_LockSurface(vidSurface);
+
 			SDL_UpdateTexture(texture, &src_rect, vidSurface->pixels, vidSurface->pitch);
 			SDL_UnlockSurface(vidSurface);
 		}
 
+
 		SDL_RenderClear(renderer);
 		SDL_RenderCopy(renderer, texture, &src_rect, NULL);
+
 		SDL_RenderPresent(renderer);
+
 	}
 
 #ifdef HWRENDER
 	else if (rendermode == render_opengl)
 	{
+#ifdef __vita__
 		OglSdlFinishUpdate(cv_vidwait.value);
+#else
+		OglSdlFinishUpdate(cv_vidwait.value);
+#endif
 	}
 #endif
+
+	VITA_KEEP_BOOTSCREEN();
 
 	exposevideo = SDL_FALSE;
 }
@@ -1553,7 +1756,13 @@ INT32 VID_GetModeForSize(INT32 w, INT32 h)
 			return i;
 		}
 	}
+#if defined(__vita__) && !defined(FORCE_SW_RENDERER)
+	/* jamais -1 : le fallback interroge SDL (driver dummy en mode vitaGL,
+	   qui répond n'importe quoi) ; le seul mode qui existe est le natif */
+	return 0;
+#else
 	return -1;
+#endif
 #if 0
 	INT32 matchMode = -1, i;
 	VID_PrepareModeList();
@@ -1681,29 +1890,74 @@ INT32 VID_SetMode(INT32 modeNum)
 	vid.recalc = 1;
 	vid.bpp = 1;
 
-	if (modeNum >= 0 && modeNum < MAXWINMODES)
+#if defined(__vita__) && !defined(FORCE_SW_RENDERER)
+	/* La surface GXM de vitaGL est creee a l'init avec une taille fixe : on ne
+	   peut PAS la redimensionner a chaud (le jeu dessinerait dans un coin, cf.
+	   bug 12). Si le mode demande ne correspond pas a la resolution REELLEMENT
+	   active, on le memorise pour le prochain lancement — mais on RAMENE le mode
+	   a la resolution active et on laisse la suite se derouler normalement.
+	   NE JAMAIS sortir d'ici : c'est la suite qui appelle OglSdlSurface(), qui
+	   initialise textureformatGL. Sortir laissait ce format a 0, vitaGL ne le
+	   reconnaissait pas, laissait son write_cb a NULL... et l'appelait quand
+	   meme -> saut a l'adresse 0 (crash au lancement, 13/07/2026). */
+	if (modeNum >= 0 && modeNum < MAXWINMODES
+		&& (windowedModes[modeNum][0] != vita_render_w
+			|| windowedModes[modeNum][1] != vita_render_h))
 	{
-		vid.width = windowedModes[modeNum][0];
-		vid.height = windowedModes[modeNum][1];
-		vid.modenum = modeNum;
-	}
-	else
-	{
-		// just set the desktop resolution as a fallback
-		SDL_DisplayMode mode;
-		SDL_GetWindowDisplayMode(window, &mode);
-		if (mode.w >= 2048)
+		int i;
+
+		/* Au DEMARRAGE, ce desaccord est normal : la config du jeu n'est pas
+		   encore chargee et cv_scr_width porte encore sa valeur par defaut. Il
+		   ne faut surtout rien persister, sinon on ecraserait le choix de
+		   l'utilisateur. On ne memorise que les changements qu'il demande. */
+		if (graphics_started)
 		{
-			vid.width = 1920;
-			vid.height = 1200;
+			VitaGfx_SaveRes(windowedModes[modeNum][0], windowedModes[modeNum][1]);
+			/* On aligne AUSSI les cvars du jeu (sauvegardees dans
+			   kartconfig.cfg) : sans ca, config et gfxmode.txt se
+			   contrediraient au prochain demarrage. */
+			CV_SetValue(&cv_scr_width, windowedModes[modeNum][0]);
+			CV_SetValue(&cv_scr_height, windowedModes[modeNum][1]);
+			CONS_Printf("\x82%dx%d\x80 will be applied when you restart the game.\n",
+				windowedModes[modeNum][0], windowedModes[modeNum][1]);
+		}
+
+		/* On continue avec la resolution reellement active. */
+		for (i = 0; i < MAXWINMODES; i++)
+		{
+			if (windowedModes[i][0] == vita_render_w
+				&& windowedModes[i][1] == vita_render_h)
+			{
+				modeNum = i;
+				break;
+			}
+		}
+	}
+#endif
+
+		if (modeNum >= 0 && modeNum < MAXWINMODES)
+		{
+			vid.width = windowedModes[modeNum][0];
+			vid.height = windowedModes[modeNum][1];
+			vid.modenum = modeNum;
 		}
 		else
 		{
-			vid.width = mode.w;
-			vid.height = mode.h;
+			// just set the desktop resolution as a fallback
+			SDL_DisplayMode mode;
+			SDL_GetWindowDisplayMode(window, &mode);
+			if (mode.w >= 2048)
+			{
+				vid.width = 1920;
+				vid.height = 1200;
+			}
+			else
+			{
+				vid.width = mode.w;
+				vid.height = mode.h;
+			}
+			vid.modenum = -1;
 		}
-		vid.modenum = -1;
-	}
 	//Impl_SetWindowName("SRB2Kart "VERSIONSTRING);
 
 	SDLSetMode(vid.width, vid.height, USE_FULLSCREEN);
@@ -1744,12 +1998,23 @@ static SDL_bool Impl_CreateWindow(SDL_bool fullscreen)
 
 #ifdef HWRENDER
 	if (rendermode == render_opengl)
+#ifndef __vita__
 		flags |= SDL_WINDOW_OPENGL;
+#endif
 #endif
 
 	// Create a window
+#ifdef __vita__
+	/* L'écran Vita est fixe en 960x544 sans gestionnaire de fenêtres : une
+	   "fenêtre" plus petite serait plaquée en haut à gauche. Le jeu continue
+	   de rendre en vid.width x vid.height dans `texture`, étirée plein écran
+	   par le RenderCopy (dst NULL = toute la cible). */
+	window = SDL_CreateWindow("SRB2Kart "VERSIONSTRING, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+			vita_render_w, vita_render_h, flags);
+#else
 	window = SDL_CreateWindow("SRB2Kart "VERSIONSTRING, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
 			realwidth, realheight, flags);
+#endif
 
 	if (window == NULL)
 	{
@@ -1761,6 +2026,7 @@ static SDL_bool Impl_CreateWindow(SDL_bool fullscreen)
 #ifdef HWRENDER
 	if (rendermode == render_opengl)
 	{
+#ifndef __vita__
 		sdlglcontext = SDL_GL_CreateContext(window);
 		if (sdlglcontext == NULL)
 		{
@@ -1768,6 +2034,7 @@ static SDL_bool Impl_CreateWindow(SDL_bool fullscreen)
 			I_Error("Failed to create a GL context: %s\n", SDL_GetError());
 		}
 		SDL_GL_MakeCurrent(window, sdlglcontext);
+#endif
 	}
 	else
 #endif
@@ -1784,7 +2051,21 @@ static SDL_bool Impl_CreateWindow(SDL_bool fullscreen)
 		// "direct3d" driver (D3D9) causes Drmingw exchndl
 		// to not write RPT files. Every other driver
 		// seems fine.
+#ifndef __vita__ // le seul driver Vita est "VITA gxm" ; forcer "opengl" ferait échouer SDL_CreateRenderer
 		SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
+#endif
+
+		#ifdef __SWITCH__
+			flags = SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC;
+		#endif
+
+#ifdef __vita__
+		/* PRESENTVSYNC sur le renderer GXM de SDL2-Vita bloque ~162 ms par
+		   frame (mesuré : present=162000 µs ≈ 10 vblanks), soit
+		   ~6 fps alors que jeu+rendu SW ne coûtent que 7-17 ms. Sans le flag,
+		   le present est asynchrone ; le moteur régule déjà son rythme. */
+		flags = 0;
+#endif
 
 		renderer = SDL_CreateRenderer(window, -1, flags);
 		if (renderer == NULL)
@@ -1792,7 +2073,9 @@ static SDL_bool Impl_CreateWindow(SDL_bool fullscreen)
 			CONS_Printf(M_GetText("Couldn't create rendering context: %s\n"), SDL_GetError());
 			return SDL_FALSE;
 		}
+#ifndef __vita__ // pas de taille logique sur Vita : RenderCopy(dst NULL) étire déjà sur les 960x544
 		SDL_RenderSetLogicalSize(renderer, BASEVIDWIDTH, BASEVIDHEIGHT);
+#endif
 	}
 
 	return SDL_TRUE;
@@ -1871,6 +2154,17 @@ OpenRendererFile (const char * mode)
 	return fopen(path, mode);
 }
 
+#ifdef __vita__
+#define MAX_INDICES 4096
+uint16_t *indices;
+uint8_t *gColorBuffer;
+uint8_t *gColorBufferPtr;
+float *gVertexBuffer;
+float *gVertexBufferPtr;
+float *gTexCoordBuffer;
+float *gTexCoordBufferPtr;
+#endif
+
 void I_StartupGraphics(void)
 {
 	if (dedicated)
@@ -1880,6 +2174,10 @@ void I_StartupGraphics(void)
 	}
 	if (graphics_started)
 		return;
+
+#if defined(__vita__) && !defined(FORCE_SW_RENDERER)
+	VitaGfx_Init(); // AVANT la fenetre et vitaGL : ils doivent s'y conformer
+#endif
 
 	COM_AddCommand ("vid_nummodes", VID_Command_NumModes_f);
 	COM_AddCommand ("vid_info", VID_Command_Info_f);
@@ -1894,6 +2192,10 @@ void I_StartupGraphics(void)
 
 #if !defined(HAVE_TTF)
 	// Previously audio was init here for questionable reasons?
+#ifdef __vita__
+	if (rendermode == render_opengl)
+		setenv("SDL_VIDEODRIVER", "dummy", 1);
+#endif
 	if (SDL_InitSubSystem(SDL_INIT_VIDEO) < 0)
 	{
 		CONS_Printf(M_GetText("Couldn't initialize SDL's Video System: %s\n"), SDL_GetError());
@@ -1916,6 +2218,9 @@ void I_StartupGraphics(void)
 #ifdef HWRENDER
 	else if (M_CheckParm("-opengl"))
 		rendermode = render_opengl;
+#if defined(__vita__)
+	else rendermode = render_opengl;
+#endif
 #endif
 
 	if (rendermode == render_none)
@@ -1949,8 +2254,13 @@ void I_StartupGraphics(void)
 #endif
 		if (rendermode == render_none)
 		{
+#if defined(__vita__) && defined(HWRENDER)
+			rendermode = render_opengl;
+			CONS_Printf("Using default OpenGL renderer for Vita.\n");
+#else
 			rendermode = render_soft;
 			CONS_Printf("Using default software renderer.\n");
+#endif
 		}
 	}
 	else
@@ -1977,6 +2287,10 @@ void I_StartupGraphics(void)
 	usesdl2soft = M_CheckParm("-softblit");
 	borderlesswindow = M_CheckParm("-borderless");
 
+#ifdef FORCE_SW_RENDERER
+	usesdl2soft = SDL_TRUE;
+#endif	
+	
 	//SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY>>1,SDL_DEFAULT_REPEAT_INTERVAL<<2);
 	VID_Command_ModeList_f();
 #ifdef HWRENDER
@@ -2017,6 +2331,48 @@ void I_StartupGraphics(void)
 
 		HWD.pfnLoadCustomShader = hwSym("LoadCustomShader",NULL);
 		HWD.pfnInitCustomShaders = hwSym("InitCustomShaders",NULL);
+#ifdef __vita__
+		{
+			/* Meme resolution que la fenetre et vid.width : c'est ELLE qui
+			   determine le nombre de pixels a remplir par le GPU. */
+			vglInitExtended(0x1000000, vita_render_w, vita_render_h, 0x1000000, SCE_GXM_MULTISAMPLE_NONE);
+			glEnableClientState(GL_VERTEX_ARRAY);
+			vglUseVram(GL_TRUE);
+			//vglMapHeapMem();
+			gVertexBufferPtr = (float*)malloc(0x400000);
+			gColorBufferPtr = (uint8_t*)malloc(0x200000);
+			gTexCoordBufferPtr = (float*)malloc(0x200000);
+			gVertexBuffer = gVertexBufferPtr;
+			gColorBuffer = gColorBufferPtr;
+			gTexCoordBuffer = gTexCoordBufferPtr;
+			vglStartRendering();
+			int i;
+			indices = (uint16_t*)malloc(sizeof(uint16_t*)*MAX_INDICES);
+			for (i=0;i<MAX_INDICES;i++){
+				indices[i] = i;
+			}
+			vglIndexPointerMapped(indices);
+			/* les deux swap buffers sortent de la CDRAM non initialisée
+			   (blanc bruité) : on les nettoie en noir, sinon les frames de
+			   chargement (texte console blanc) sont illisibles */
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT);
+			vglStopRendering();
+			vglStartRendering();
+			glClear(GL_COLOR_BUFFER_BIT);
+			vglStopRendering();
+			vglStartRendering();
+			{
+				/* l'init vitaGL vient de voler l'écran à l'écran de chargement :
+				   on remet son framebuffer (et on le redessine, la CDRAM ayant
+				   pu être réutilisée) jusqu'à la première vraie frame du jeu */
+				extern int psvDebugScreenRearm(void);
+				extern void VitaBoot_Redraw(void);
+				psvDebugScreenRearm();
+				VitaBoot_Redraw();
+			}
+		}
+#endif
 
 		HWD.pfnStartBatching = hwSym("StartBatching",NULL);
 		HWD.pfnRenderBatches = hwSym("RenderBatches",NULL);
@@ -2140,4 +2496,77 @@ static void Impl_SetVsync(void)
 		SDL_RenderSetVSync(renderer, cv_vidwait.value);
 #endif
 }
+
+#ifdef __vita__
+// La console n'a pas de clavier : toute saisie de texte (IP d'un serveur, nom
+// de partie...) passe par le dialogue IME du systeme. Il n'est PAS dessine par
+// nous : c'est le compositeur systeme qui ecrit dans le back-buffer que nous
+// lui designons a chaque frame via vglUpdateCommonDialog(). Il faut donc
+// continuer a presenter des frames tant qu'il est ouvert, sinon il reste
+// invisible. (Ne pas passer par SDL_ShowSimpleMessageBox / les dialogues SDL :
+// leur backend Vita suppose un renderer GXM SDL, inexistant en mode vitaGL —
+// c'etait le crash gxm_swap_for_common_dialog.)
+boolean I_TextInputDialog(const char *title, const char *initial, char *out, size_t outlen)
+{
+	static SceWChar16 title16[SCE_IME_DIALOG_MAX_TITLE_LENGTH];
+	static SceWChar16 initial16[SCE_IME_DIALOG_MAX_TEXT_LENGTH + 1];
+	static SceWChar16 input16[SCE_IME_DIALOG_MAX_TEXT_LENGTH + 1];
+	SceImeDialogParam param;
+	SceImeDialogResult result;
+	size_t i;
+
+	if (rendermode != render_opengl)
+		return false; // le chemin common dialog ci-dessous est celui de vitaGL
+
+	if (outlen < 2 || outlen > SCE_IME_DIALOG_MAX_TEXT_LENGTH)
+		return false;
+
+	// ASCII -> UTF-16. On lit initial AVANT d'ecrire dans out : les deux
+	// peuvent etre le meme buffer cote appelant.
+	for (i = 0; i < SCE_IME_DIALOG_MAX_TITLE_LENGTH - 1 && title[i]; i++)
+		title16[i] = (SceWChar16)title[i];
+	title16[i] = 0;
+	for (i = 0; i < outlen - 1 && initial[i]; i++)
+		initial16[i] = (SceWChar16)initial[i];
+	initial16[i] = 0;
+	memset(input16, 0, sizeof(input16));
+
+	sceImeDialogParamInit(&param);
+	param.supportedLanguages = 0; // celles du systeme
+	param.languagesForced = SCE_FALSE;
+	param.type = SCE_IME_TYPE_BASIC_LATIN; // IP ou nom d'hote : ASCII suffit
+	param.dialogMode = SCE_IME_DIALOG_DIALOG_MODE_WITH_CANCEL;
+	param.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_WITH_CLEAR;
+	param.title = title16;
+	param.maxTextLength = (SceUInt32)(outlen - 1);
+	param.initialText = initial16;
+	param.inputTextBuffer = input16;
+
+	if (sceImeDialogInit(&param) < 0)
+		return false;
+
+	while (sceImeDialogGetStatus() != SCE_COMMON_DIALOG_STATUS_FINISHED)
+	{
+		// Equivalent de notre presentation habituelle (vglStopRendering +
+		// vglStartRendering), avec la mise a jour du dialogue intercalee.
+		vglStopRenderingInit();
+		vglUpdateCommonDialog();
+		vglStopRenderingTerm();
+		vglStartRendering();
+	}
+
+	memset(&result, 0, sizeof(result));
+	sceImeDialogGetResult(&result);
+	sceImeDialogTerm();
+
+	if (result.button != SCE_IME_DIALOG_BUTTON_ENTER)
+		return false; // annule
+
+	for (i = 0; i < outlen - 1 && input16[i]; i++)
+		out[i] = (input16[i] < 0x80) ? (char)input16[i] : '?';
+	out[i] = 0;
+	return true;
+}
+#endif // __vita__
 #endif
+

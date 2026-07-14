@@ -39,6 +39,10 @@
 #include "../hardware/r_opengl/r_opengl.h"
 #include "../hardware/hw_main.h"
 #include "ogl_sdl.h"
+
+#ifdef __vita__
+#include <vitaGL.h>
+#endif
 #include "../i_system.h"
 #include "hwsym_sdl.h"
 #include "../m_argv.h"
@@ -194,14 +198,20 @@ boolean OglSdlSurface(INT32 w, INT32 h)
 
 	granisotropicmode_cons_t[1].value = maximumAnisotropy;
 
+#ifndef __vita__
 	SDL_GL_SetSwapInterval(cv_vidwait.value ? 1 : 0);
+#endif
 
 	SetModelView(w, h);
 	SetStates();
 	pglClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
 	HWR_Startup();
+#ifdef __vita__
+	textureformatGL = GL_RGBA;
+#else
 	textureformatGL = cbpp > 16 ? GL_RGBA : GL_RGB5_A1;
+#endif
 
 	return true;
 }
@@ -218,13 +228,27 @@ void OglSdlFinishUpdate(boolean waitvbl)
 	int sdlw, sdlh;
 	if (oldwaitvbl != waitvbl)
 	{
+#ifndef __vita__
 		SDL_GL_SetSwapInterval(waitvbl ? 1 : 0);
+#endif
 	}
 
 	oldwaitvbl = waitvbl;
 
 	SDL_GetWindowSize(window, &sdlw, &sdlh);
 
+#ifdef __vita__
+	/* glCopyTexImage2D est un no-op sous vitaGL : la « texture écran finale »
+	   resterait vide et son tracé plein écran effacerait la frame (écran
+	   noir). On rend déjà en 960x544 natif, cette passe de rescale est
+	   inutile : on présente le backbuffer tel quel. */
+	(void)sdlw;
+	(void)sdlh;
+	vglStopRendering();
+	vglStartRendering();
+
+	GClipRect(0, 0, realwidth, realheight, NZCLIP_PLANE);
+#else
 	HWR_MakeScreenFinalTexture();
 	HWR_DrawScreenFinalTexture(sdlw, sdlh);
 	SDL_GL_SwapWindow(window);
@@ -234,6 +258,7 @@ void OglSdlFinishUpdate(boolean waitvbl)
 	// Sryder:	We need to draw the final screen texture again into the other buffer in the original position so that
 	//			effects that want to take the old screen can do so after this
 	HWR_DrawScreenFinalTexture(realwidth, realheight);
+#endif
 }
 
 EXPORT void HWRAPI(OglSdlSetPalette) (RGBA_t *palette, RGBA_t *pgamma)

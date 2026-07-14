@@ -82,6 +82,7 @@
 #############################################################################
 
 ALL_SYSTEMS=\
+	PSP2\
 	PANDORA\
 	LINUX64\
 	MINGW64\
@@ -229,6 +230,16 @@ endif
 ifdef PS3N
 NONX86=1
 NOHW=1
+endif
+
+ifdef PSP2
+# libcurl installe par vdpm (backend OpenSSL) => navigateur de serveurs actif.
+# Flags dans sdl/SRB2Vita/Makefile.cfg (surtout PAS curl-config).
+# sceNet ne fait que de l'IPv4 (pas de in6addr_any dans netinet/in.h).
+NO_IPV6=1
+NOASM=1
+NONX86=1
+NOOBJDUMP=1
 endif
 
 ifdef DJGPPDOS
@@ -414,6 +425,9 @@ endif
 
 ifndef NOCURL
 OPTS+=-DHAVE_CURL
+# HAVE_CURL_MULTI : interface multi de libcurl (telechargement HTTP des addons).
+# Disponible partout, y compris sur Vita depuis qu'on lie curl a mbedTLS.
+OPTS+=-DHAVE_CURL_MULTI
 CURLCONFIG?=curl-config
 CURL_CFLAGS?=$(shell $(CURLCONFIG) --cflags)
 CURL_LDFLAGS?=$(shell $(CURLCONFIG) --libs)
@@ -613,6 +627,7 @@ OBJS:=$(i_main_o) \
 		$(i_sound_o)    \
 		$(OBJS)
 
+
 # List of languages to compile.
 # For reference, this is the command I use to build a srb2.pot file from the source code.
 # (The listed source files are the ones containing translated strings).
@@ -680,10 +695,18 @@ cleandep:
 	$(REMOVE) comptime.h
 
 pre-build:
+ifdef PSP2
+# Les scripts comptime.bat/.sh reposent sur `echo >` : sur un cmd francais ils
+# ecrivent « Commande ECHO desactivee. » dans comptime.h (ou le vident), ce qui
+# casse le lien (comprevision/compbranch introuvables). On maintient comptime.h
+# a la main : ne rien regenerer ici.
+	@echo "PSP2 : comptime.h maintenu a la main, pre-build ignore"
+else
 ifdef WINDOWSHELL
 	-..\comptime.bat .
 else
 	-@../comptime.sh .
+endif
 endif
 
 clean:
@@ -705,12 +728,12 @@ asm:
 	$(REMOVE) $(OBJDIR)/tmp.exe
 
 # executable
-# NOTE: DJGPP's objcopy do not have --add-gnu-debuglink
+# NOTE: DJGPP's $(PREFIX)-objcopy do not have --add-gnu-debuglink
 
 $(BIN)/$(EXENAME): $(POS) $(OBJS)
 	-$(MKDIR) $(BIN)
 	@echo Linking $(EXENAME)...
-	$(LD) $(LDFLAGS) $(OBJS) -o $(BIN)/$(EXENAME) $(LIBS)
+	arm-vita-eabi-g++ $(CXXFLAGS) $(OBJS) $(LIBS) -o $(BIN)/$(EXENAME) 
 ifndef VALGRIND
 ifndef NOOBJDUMP
 	@echo Dumping debugging info
@@ -835,7 +858,14 @@ endif
 
 $(OBJDIR)/depend.dep:
 	@echo "Creating dependency file, depend.dep"
+ifndef PSP2
+# ⚠️ `echo > comptime.h` VIDE le fichier sur un cmd francais (« Commande ECHO
+# desactivee. ») : chaque reconstruction complete cassait le lien
+# (undefined reference to comprevision). Sous PSP2, comptime.h est maintenu a la
+# main — ne pas y toucher. (La regle pre-build etait deja neutralisee ; celle-ci,
+# beaucoup plus discrete, avait ete oubliee.)
 	@echo > comptime.h
+endif
 	-$(MKDIR) $(OBJDIR)
 	$(CC) $(CFLAGS) -MM *.c > $(OBJDIR)/depend.ped
 	$(CC) $(CFLAGS) -MM $(INTERFACE)/*.c >> $(OBJDIR)/depend.ped
@@ -883,6 +913,10 @@ $(OBJDIR)/%.o: sdl/macosx/%.c
 endif
 
 $(OBJDIR)/%.o: hardware/%.c
+	$(CC) $(CFLAGS) $(WFLAGS) -c $< -o $@
+
+# Sources propres au port Vita (couche curl -> SceHttp).
+$(OBJDIR)/%.o: sdl/SRB2Vita/%.c
 	$(CC) $(CFLAGS) $(WFLAGS) -c $< -o $@
 
 $(OBJDIR)/%.o: blua/%.c
@@ -1054,3 +1088,5 @@ endif
 #############################################################
 #
 #############################################################
+
+

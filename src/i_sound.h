@@ -58,6 +58,22 @@ void *I_GetSfx(sfxinfo_t *sfx);
 */
 void I_FreeSfx(sfxinfo_t *sfx);
 
+#ifdef __vita__
+/*  Precharge, pendant l'ecran de chargement, les bruitages que le jeu a REELLEMENT
+    joues (liste qu'il tient lui-meme dans ux0:data/srb2kart/sfxwarm.txt).
+    Les sons de Kart sont des OGG : SDL_mixer les decode au premier usage — 160 a
+    240 ms EN PLEINE FRAME, dans P_Ticker. C'etait la cause des pics de 380 ms.
+    Tout decoder est impossible (mesure : 926 sons = 224 Mo, le tas fait 256 Mo).
+    Deux autres pistes ont ete essayees et abandonnees : le decodage en tache de fond
+    (hachait l'audio des menus) et le premier usage muet (le dernier tour et l'arrivee
+    ne sonnent qu'une fois par course : leur premiere occurrence est la seule).  */
+void I_PrecacheWarmSfx(boolean gentle);
+void I_ClearSfxKeepDecoded(void);
+void VitaLoad_Begin(void);
+void VitaLoad_End(void);
+void VitaLoad_SetProgress(float p);
+#endif
+
 /**	\brief Init at program start...
 */
 void I_StartupSound(void);

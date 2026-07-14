@@ -89,7 +89,16 @@ void S_InitSfxChannels(INT32 sfxVolume);
 //
 void S_StopSounds(void);
 void S_ClearSfx(void);
+#ifdef __vita__
+extern consvar_t cv_vitakeepsfx;
+#endif
 void S_Start(void);
+
+#ifdef __vita__
+/** Precharge les lumps des musiques d'une course (la lecture sur la carte
+    memoire coute 250-740 ms et gelait le jeu en pleine action). */
+void S_PrecacheRaceMusic(void);
+#endif
 
 //
 // Basically a W_GetNumForName that adds "ds" at the beginning of the string. Returns a lumpnum.

@@ -1,0 +1,28 @@
+From: SRB2Kart PS Vita / PS TV port
+Subject: [PATCH 2/2] http-mserv: guard logstream with LOGMESSAGES
+
+`logstream` is only declared under `#ifdef LOGMESSAGES` (doomdef.h), which is
+defined for Windows / Unix / macOS only. `http-mserv.c` uses it unconditionally,
+so any *other* platform that builds with curl fails to compile:
+
+    http-mserv.c: error: 'logstream' undeclared
+
+Nobody had hit this because curl had never been built outside that list. Once
+guarded, the master server and the server browser work fine on a console.
+
+Found while porting SRB2Kart to the PS Vita / PS TV.
+---
+--- a/src/http-mserv.c
++++ b/src/http-mserv.c
+@@ -203,9 +203,11 @@
+ 
+ 	if (cv_masterserver_debug.value)
+ 	{
+ 		curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
++#ifdef LOGMESSAGES
+ 		curl_easy_setopt(curl, CURLOPT_STDERR, logstream);
++#endif
+ 	}
+ 
+ 	if (M_CheckParm("-bindaddr") && M_IsNextParm())
+ 	{

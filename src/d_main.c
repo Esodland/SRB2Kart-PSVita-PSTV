@@ -35,6 +35,14 @@ int	snprintf(char *str, size_t n, const char *fmt, ...);
 #include <malloc.h>
 #endif
 
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
+
+#ifdef __vita__
+#include <vitasdk.h>
+#endif
+
 #if !defined (UNDER_CE)
 #include <time.h>
 #elif defined (_XBOX)
@@ -108,6 +116,31 @@ int	snprintf(char *str, size_t n, const char *fmt, ...);
 #include "discord.h"
 #endif
 
+#ifdef __vita__
+#include <vitasdk.h>
+/* Taille du tas newlib (Z_Malloc du jeu vit dessus). 128 Mo = OOM pendant
+   l'intro (Z_MallocAlign). 192 Mo = valeur éprouvée du port SRB2 2019 en
+   rendu logiciel, mais OOM en fin de course en OpenGL : le cache de
+   textures GL (PU_HWRCACHE) stocke les patches en RGBA 32 bits, 4x plus
+   gros que le 8 bits palettisé du SW. 256 Mo EXIGE la mémoire étendue
+   (+109 Mo) : ATTRIBUTE2=12 dans le param.sfo, ET INSTALLÉ VIA LE VPK —
+   remplacer param.sfo par FTP ne suffit pas (testé 13/07 : malloc mort
+   dès __realpath, boot impossible). Purger PU_HWRCACHE en fin de course
+   ne marche pas non plus (dangling dans HWR_GetPatch).
+   (La réduction 192->128 datait d'une fausse piste : le bug des I/O muettes
+   venait du strlcpy du jeu écrasant la libc, pas du tas.)
+   Les stubs getcwd/chdir de ce port ont été retirés : le newlib moderne les
+   implémente déjà (collision au link). */
+/* 14/07 : 256 -> 288 Mo. Un serveur avec 274 Mo d'addons faisait echouer Z_Malloc au
+   chargement de la course (« Out of memory allocating zu bytes », error.txt) : le jeu
+   precharge les sprites de tous les personnages presents, et le tas saturait.
+   La memoire etendue (ATTRIBUTE2=12) porte le budget de l'app a ~365 Mo, mais tout
+   n'est PAS disponible pour le tas : l'eboot (11,8 Mo), SDL, sceNet, la pile TLS et
+   les threads systeme prennent leur part. MESURE : 320 Mo = l'appli ne demarre plus.
+   288 Mo est le palier suivant. ⚠️ Ne pas remonter sans tester le BOOT. */
+int _newlib_heap_size_user = 288 * 1024 * 1024;
+#endif
+
 // platform independant focus loss
 UINT8 window_notinfocus = false;
 
@@ -153,6 +186,9 @@ char savegamename[256];
 #ifdef _arch_dreamcast
 char srb2home[256] = "/cd";
 char srb2path[256] = "/cd";
+#elif defined(__vita__)
+char srb2home[256] = "ux0:/data/srb2kart";
+char srb2path[256] = "ux0:/data/srb2kart";
 #else
 char srb2home[256] = ".";
 char srb2path[256] = ".";
@@ -934,6 +970,13 @@ static void IdentifyVersion(void)
 {
 	const char *srb2waddir = NULL;
 
+#ifdef __vita__
+	/* Sur Vita il n'y a pas de "répertoire courant" utile : getcwd() renvoie
+	   app0: (le dossier de l'app, en lecture seule) et le moteur y cherchait
+	   ses WADs en vain. Les données vivent toujours au même endroit. */
+	srb2waddir = srb2path;   /* "ux0:/data/srb2kart", cf. plus haut */
+#else
+
 #if (defined (__unix__) && !defined (MSDOS)) || defined (UNIXCOMMON) || defined (HAVE_SDL)
 	// change to the directory where 'srb2.srb' is found
 	srb2waddir = I_LocateWad();
@@ -959,6 +1002,7 @@ static void IdentifyVersion(void)
 #endif
 		}
 	}
+#endif /* __vita__ */
 
 	// Load the IWAD
 	if (! AddIWAD())
@@ -1148,7 +1192,7 @@ void D_SRB2Main(void)
 
 		if (!userhome)
 		{
-#if ((defined (__unix__) && !defined (MSDOS)) || defined(__APPLE__) || defined (UNIXCOMMON)) && !defined (__CYGWIN__) && !defined (DC) && !defined (PSP) && !defined(GP2X)
+#if ((defined (__unix__) && !defined (MSDOS)) || defined(__APPLE__) || defined (UNIXCOMMON)) && !defined (__CYGWIN__) && !defined (DC) && !defined (PSP) && !defined(GP2X) && !defined(__vita__)
 			I_Error("Please set $HOME to your home directory\n");
 #elif defined (_WIN32_WCE) && 0
 			if (dedicated)
@@ -1214,6 +1258,26 @@ void D_SRB2Main(void)
 
 #ifdef _arch_dreamcast
 	strcpy(downloaddir, "/ram"); // the dreamcast's TMP
+#endif
+
+#ifdef __vita__
+	/* Le bloc qui renseigne downloaddir (plus haut) exclut explicitement la Vita :
+	   il restait donc sur son defaut RELATIF, "DOWNLOAD" (d_netfil.c). Sur cette
+	   console, les chemins relatifs ne menent nulle part de fiable — on le fixe en
+	   ABSOLU, et on cree le dossier (I_mkdir ne faisait rien sur Vita : cf. le fix
+	   dans sdl/i_system.c). Sans ca, tout telechargement d'addon en multijoueur
+	   echoue au moment d'ecrire le fichier. */
+	snprintf(downloaddir, sizeof downloaddir, "%s" PATHSEP "DOWNLOAD", srb2home);
+	I_mkdir(srb2home, 0755);
+	I_mkdir(downloaddir, 0755);
+#endif
+
+#ifdef __SWITCH__
+	// FIXME
+	if(!appletMainLoop()) {
+		I_Quit();
+		M_QuitResponse('y');
+	}
 #endif
 	}
 
@@ -1693,6 +1757,16 @@ void D_SRB2Main(void)
 		DRPC_Init();
 	}
 #endif
+
+#ifdef __vita__
+	/* Chargement termine : on rend l'ecran a la premiere vraie frame du jeu
+	   (jusqu'ici I_FinishUpdate re-armait le framebuffer de l'ecran de
+	   chargement, cf. i_video.c). */
+	{
+		extern void VitaBoot_Done(void);
+		VitaBoot_Done();
+	}
+#endif
 }
 
 const char *D_Home(void)
@@ -1701,6 +1775,11 @@ const char *D_Home(void)
 
 #ifdef ANDROID
 	return "/data/data/org.srb2/";
+#endif
+#ifdef __vita__
+	/* L'appelant recolle PATHSEP DEFAULTDIR ("srb2kart") derrière : on rend
+	   donc le dossier PARENT, sinon on obtient .../srb2kart/srb2kart */
+	return "ux0:/data";
 #endif
 #ifdef _arch_dreamcast
 	char VMUHOME[] = "HOME=/vmu/a1";

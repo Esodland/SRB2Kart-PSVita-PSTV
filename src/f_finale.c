@@ -532,6 +532,22 @@ static const char *credits[] = {
 	"\1In Memory of",
 	"\"Tyler52\"",
 	"",
+#ifdef __vita__
+	// Le portage vient APRES tout le monde, et volontairement : le jeu, le moteur et
+	// la couche Vita existaient bien avant. Pas de « / » dans les entetes : la police
+	// des credits n'a pas ce glyphe (cf. le garde-fou de v_video.c).
+	"",
+	"\1PS Vita and PS TV Port",
+	"",
+	"\1Built On The Work Of",
+	"\"Rinnegatamante\"",
+	"vitaGL and the original SRB2 Vita port",
+	"",
+	"\1Ported By",
+	"\"Esod\"",
+	"with \"Ryo\"'s help",
+	"",
+#endif
 	"",
 	"\1Thank you",
 	"\1for playing!",

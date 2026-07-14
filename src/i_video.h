@@ -137,4 +137,21 @@ void I_EndRead(void);
 
 UINT32 I_GetRefreshRate(void);
 
+#ifdef __vita__
+/**	\brief	Profileur (temporaire) : decoupe la frame en logique / rendu /
+*/
+#endif
+
+#ifdef __vita__
+/**	\brief	Saisie de texte via le clavier virtuel du systeme (dialogue IME).
+			Bloquant : rend des frames tant que le dialogue est ouvert.
+	\param	title	titre affiche au-dessus du clavier
+	\param	initial	texte pre-rempli (peut pointer sur out)
+	\param	out		buffer de sortie (ASCII)
+	\param	outlen	taille de out, terminaison comprise
+	\return	true si l'utilisateur a valide, false s'il a annule
+*/
+boolean I_TextInputDialog(const char *title, const char *initial, char *out, size_t outlen);
+#endif
+
 #endif

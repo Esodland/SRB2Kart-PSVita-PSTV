@@ -110,29 +110,29 @@ typedef long ssize_t;
 #endif
 #endif
 #endif
-	#define strncasecmp             strnicmp
-	#define strcasecmp              stricmp
+	#define strncasecmp             strncasecmp
+	#define strcasecmp              strcasecmp
 	#define inline                  __inline
 #elif defined (__WATCOMC__)
 	#include <dos.h>
 	#include <sys\types.h>
 	#include <direct.h>
 	#include <malloc.h>
-	#define strncasecmp             strnicmp
+	#define strncasecmp             strncasecmp
 	#define strcasecmp              strcmpi
 #endif
 #ifdef _PSP
 	#include <malloc.h>
 #elif (defined (__unix__) && !defined (MSDOS)) || defined(__APPLE__) || defined (UNIXCOMMON)
-	#undef stricmp
-	#define stricmp(x,y) strcasecmp(x,y)
-	#undef strnicmp
-	#define strnicmp(x,y,n) strncasecmp(x,y,n)
+	#undef strcasecmp
+	#define strcasecmp(x,y) strcasecmp(x,y)
+	#undef strncasecmp
+	#define strncasecmp(x,y,n) strncasecmp(x,y,n)
 #endif
 #ifdef _WIN32_WCE
 #ifndef __GNUC__
-	#define stricmp(x,y)            _stricmp(x,y)
-	#define strnicmp                _strnicmp
+	#define strcasecmp(x,y)            _strcasecmp(x,y)
+	#define strncasecmp                _strncasecmp
 #endif
 	#define strdup                  _strdup
 	#define strupr                  _strupr
@@ -149,8 +149,8 @@ char *strcasestr(const char *in, const char *what);
 	#define max(x,y) (((x)>(y)) ? (x) : (y))
 
 #ifdef macintosh
-	#define stricmp strcmp
-	#define strnicmp strncmp
+	#define strcasecmp strcmp
+	#define strncasecmp strncmp
 #endif
 
 	#define boolean INT32
@@ -160,11 +160,27 @@ char *strcasestr(const char *in, const char *what);
 	#endif
 #endif //macintosh
 
-#if defined (PC_DOS) || defined (_WIN32) || defined (_WII) || defined (_PSP) || defined (_arch_dreamcast) || defined (__HAIKU__) || defined(_NDS)  || defined(_PS3)
+#if defined (PC_DOS) || defined(__vita__) || defined (_WIN32) || defined (_WII) || defined (_PSP) || defined (_arch_dreamcast) || defined (__HAIKU__) || defined(_NDS) || defined(_PS3) || defined(__SWITCH__)
 #define HAVE_DOSSTR_FUNCS
 #endif
 
+#ifdef __vita__
+// newlib ne déclare pas stricmp/strnicmp : mapping central vers POSIX,
+// évite de patcher chaque site d'appel comme le faisait srb2-vita
+#include <strings.h>
+#define stricmp strcasecmp
+#define strnicmp strncasecmp
+#endif
+
 #if defined (__APPLE__)
+	#define SRB2_HAVE_STRLCPY
+#elif defined (__vita__)
+	// CRITIQUE : le newlib VitaSDK fournit strlcpy/strlcat ET son __realpath
+	// (fs.c, appelé par chaque open/fopen) les utilise. La version du jeu
+	// (string.c) renvoie une longueur fausse (src déjà avancé) ; si elle
+	// écrase celle de la libc au link, __realpath tronque tout chemin à
+	// "ux0:/" et TOUTES les E/S fichiers deviennent des faux succès
+	// (sceIoDopen sur la racine). Ne jamais compiler string.c sur Vita.
 	#define SRB2_HAVE_STRLCPY
 #elif defined (__GLIBC_PREREQ)
 	// glibc 2.38: added strlcpy and strlcat to _DEFAULT_SOURCE
@@ -209,7 +225,7 @@ size_t strlcpy(char *dst, const char *src, size_t siz);
 		#define boolean BOOL
 	#elif defined(_NDS)
 		#define boolean bool
-	#elif defined(_PS3) // defined(__GNUC__)?
+	#elif defined(_PS3) || defined(__SWITCH__) || defined(__vita__) // defined(__GNUC__)?
 		#include <stdbool.h>  //_bool_true_false_are_defined?
 		#define boolean bool
 	#else

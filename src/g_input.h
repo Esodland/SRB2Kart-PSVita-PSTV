@@ -35,14 +35,28 @@
 #define JOYAXISSET   2  // 2 Sets of 2 axises
 #elif defined (_PSP)
 #define MOUSEBUTTONS 3
-#define JOYBUTTONS   14 // 10 buttons
+#define JOYBUTTONS   10 // 10 buttons
 #define JOYHATS      1  // 1 hat
 #define JOYAXISSET   1  // 1 Set of 2 axises
+#elif defined (__vita__)
+#define MOUSEBUTTONS 3
+#define JOYBUTTONS   12 // 12 buttons
+#define JOYHATS      0  // 0 hat
+// 3 paires d'axes : sticks G/D + gâchettes analogiques L2/R2 (DS4 sur
+// PS TV, via SDL_CONTROLLER_AXIS_TRIGGERLEFT/RIGHT -> paire "L/R Trigger").
+// Sur Vita portable la 3e paire ne bouge jamais : inoffensif. C'est aussi
+// ce qui rend "L Trigger"/"R Trigger" valides comme défauts de cvar.
+#define JOYAXISSET   3  // 3 Sets of 2 axises
 #elif defined (_WII)
 #define MOUSEBUTTONS 3
 #define JOYBUTTONS   20 // 20 buttons
 #define JOYHATS      1  // 1 hat
 #define JOYAXISSET   5  // 5 Sets of 2 axises
+#elif defined (__SWITCH__)
+#define MOUSEBUTTONS 3
+#define JOYBUTTONS   16 // 16 buttons
+#define JOYHATS      0  // 0 hat
+#define JOYAXISSET   2  // 2 Sets of 2 axises
 #else
 #define MOUSEBUTTONS 8
 #define JOYBUTTONS   32 // 32 buttons

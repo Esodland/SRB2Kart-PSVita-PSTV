@@ -97,6 +97,7 @@ UINT16 current_port = 0;
   */
 void AddMServCommands(void)
 {
+	CV_RegisterVar(&cv_servername);
 #ifndef NONET
 	CV_RegisterVar(&cv_masterserver);
 	CV_RegisterVar(&cv_masterserver_update_rate);
@@ -106,7 +107,6 @@ void AddMServCommands(void)
 	CV_RegisterVar(&cv_masterserver_nagattempts);
 	CV_RegisterVar(&cv_advertise);
 	CV_RegisterVar(&cv_rendezvousserver);
-	CV_RegisterVar(&cv_servername);
 	CV_RegisterVar(&cv_server_contact);
 #ifdef MASTERSERVER
 	COM_AddCommand("listserv", Command_Listserv_f);
@@ -564,6 +564,7 @@ static void MasterServer_OnChange(void)
 static void
 Advertise_OnChange(void)
 {
+#ifdef MASTERSERVER
 	int different;
 
 	if (cv_advertise.value)
@@ -586,6 +587,7 @@ Advertise_OnChange(void)
 	{
 		UnregisterServer();
 	}
+#endif
 
 #ifdef HAVE_DISCORDRPC
 	DRPC_UpdatePresence();
@@ -596,3 +598,10 @@ Advertise_OnChange(void)
 		M_PopupMasterServerRules();
 	}
 }
+
+#ifndef MASTERSERVER
+/* Sans serveur maître (build NONET), le ticker n'a rien à faire — mais
+   d_clisrv.c l'appelle inconditionnellement. Sa définition d'origine est
+   enfermée dans le #ifdef MASTERSERVER. */
+void MasterClient_Ticker(void) {}
+#endif

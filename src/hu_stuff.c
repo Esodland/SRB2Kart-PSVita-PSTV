@@ -741,7 +741,7 @@ static void Got_Saycmd(UINT8 **p, INT32 playernum)
 	}
 
 	// Handle "/me" actions, but only in messages to everyone.
-	if (target == 0 && strlen(msg) > 4 && strnicmp(msg, "/me ", 4) == 0)
+	if (target == 0 && strlen(msg) > 4 && strncasecmp(msg, "/me ", 4) == 0)
 	{
 		msg += 4;
 		action = true;
@@ -1087,6 +1087,7 @@ void HU_Ticker(void)
 	else
 		hu_showscores = false;
 
+#ifndef NONET
 	if (chat_on)
 	{
 		// count down the scroll timer.
@@ -1114,6 +1115,7 @@ void HU_Ticker(void)
 				HU_removeChatText_Mini();
 		}
 	}
+#endif
 
 	if (cechotimer > 0) --cechotimer;
 	

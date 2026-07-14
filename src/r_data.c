@@ -782,7 +782,7 @@ static texture_t *R_ParseTexture(boolean actuallyLoadTexture)
 		}
 		while (strcmp(texturesToken,"}")!=0)
 		{
-			if (stricmp(texturesToken, "PATCH")==0)
+			if (strcasecmp(texturesToken, "PATCH")==0)
 			{
 				Z_Free(texturesToken);
 				if (resultTexture)
@@ -858,7 +858,7 @@ int R_CountTexturesInTEXTURESLump(UINT16 wadNum, UINT16 lumpNum)
 	texturesToken = M_GetToken(texturesText);
 	while (texturesToken != NULL)
 	{
-		if (stricmp(texturesToken, "WALLTEXTURE")==0)
+		if (strcasecmp(texturesToken, "WALLTEXTURE")==0)
 		{
 			numTexturesInLump++;
 			Z_Free(texturesToken);
@@ -907,7 +907,7 @@ void R_ParseTEXTURESLump(UINT16 wadNum, UINT16 lumpNum, INT32 *texindex)
 	texturesToken = M_GetToken(texturesText);
 	while (texturesToken != NULL)
 	{
-		if (stricmp(texturesToken, "WALLTEXTURE")==0)
+		if (strcasecmp(texturesToken, "WALLTEXTURE")==0)
 		{
 			Z_Free(texturesToken);
 			// Get the new texture

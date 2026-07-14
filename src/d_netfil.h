@@ -59,7 +59,7 @@ extern INT32 totalfilesrequestednum;
 extern UINT32 totalfilesrequestedsize;
 #endif
 
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 extern boolean curl_failedwebdownload;
 extern boolean curl_running;
 extern INT32 curl_transfers;
@@ -105,7 +105,7 @@ filestatus_t checkfilemd5(char *filename, const UINT8 *wantedmd5sum);
 void nameonly(char *s);
 size_t nameonlylength(const char *s);
 
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 void CURLPrepareFile(const char* url, int dfilenum);
 void CURLGetFile(void);
 HTTP_login * CURLGetLogin (const char *url, HTTP_login ***return_prev_next);

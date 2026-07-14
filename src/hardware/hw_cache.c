@@ -785,7 +785,8 @@ void HWR_UnlockCachedPatch(GLPatch_t *gpatch)
 		return;
 
 	Z_ChangeTag(gpatch->mipmap->grInfo.data, PU_HWRCACHE_UNLOCKED);
-	Z_ChangeTag(gpatch, PU_HWRPATCHINFO_UNLOCKED);
+	// DO NOT UNLOCK THE STRUCT ITSELF, IT STAYS IN THE AATREE!
+	// Z_ChangeTag(gpatch, PU_HWRPATCHINFO_UNLOCKED);
 }
 
 GLPatch_t *HWR_GetCachedGLPatchPwad(UINT16 wadnum, UINT16 lumpnum)

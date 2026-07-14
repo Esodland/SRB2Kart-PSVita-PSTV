@@ -330,7 +330,7 @@ static restype_t ResourceFileDetect (const char* filename)
 {
 	if (!stricmp(&filename[strlen(filename) - 4], ".pk3"))
 		return RET_PK3;
-	if (!stricmp(&filename[strlen(filename) - 4], ".soc"))
+	if (!strcasecmp(&filename[strlen(filename) - 4], ".soc"))
 		return RET_SOC;
 	if (!stricmp(&filename[strlen(filename) - 4], ".lua"))
 		return RET_LUA;
@@ -731,7 +731,7 @@ UINT16 W_InitFile(const char *filename)
 
 	important = !W_VerifyNMUSlumps(filename);
 
-#ifndef NOMD5
+#if !defined(NOMD5) && !defined(__vita__)
 	//
 	// w-waiiiit!
 	// Let's not add a wad file if the MD5 matches
@@ -1766,7 +1766,7 @@ static void PrintMD5String(const UINT8 *md5, char *buf)
   */
 void W_VerifyFileMD5(UINT16 wadfilenum, const char *matchmd5)
 {
-#ifdef NOMD5
+#if defined(NOMD5) || defined(__vita__)
 	(void)wadfilenum;
 	(void)matchmd5;
 #else

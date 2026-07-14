@@ -153,6 +153,9 @@ static void Command_ModDetails_f(void);
 #endif
 static void Command_ShowGametype_f(void);
 FUNCNORETURN static ATTRNORETURN void Command_Quit_f(void);
+#ifdef __vita__
+static void Command_Restart_f(void);
+#endif
 static void Command_Playintro_f(void);
 
 static void Command_Displayplayer_f(void);
@@ -609,6 +612,11 @@ void D_RegisterServerCommands(void)
 	COM_AddCommand("mod_details", Command_ModDetails_f);
 #endif
 	COM_AddCommand("quit", Command_Quit_f);
+#ifdef __vita__
+	/* Le moteur ne sait pas decharger un WAD : pour changer d'addons (donc de
+	   serveur moddé), il faut relancer le jeu. Sur console, autant le faire d'ici. */
+	COM_AddCommand("restart", Command_Restart_f);
+#endif
 
 	COM_AddCommand("saveconfig", Command_SaveConfig_f);
 	COM_AddCommand("loadconfig", Command_LoadConfig_f);
@@ -4730,6 +4738,19 @@ void ItemFinder_OnChange(void)
 		return;
 	}
 }
+
+#ifdef __vita__
+/** Relance l'application : c'est la seule facon de vider les addons charges par un
+  * serveur (le moteur Doom ne sait pas decharger un WAD).
+  */
+static void Command_Restart_f(void)
+{
+	extern void I_RestartApp(void);
+
+	CONS_Printf("Restarting SRB2Kart...\n");
+	I_RestartApp();
+}
+#endif
 
 /** Deals with a pointlimit change by printing the change to the console.
   * If the gametype is single player, cooperative, or race, the pointlimit is

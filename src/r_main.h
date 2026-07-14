@@ -88,6 +88,10 @@ extern consvar_t cv_translucency;
 extern consvar_t /*cv_precipdensity,*/ cv_drawdist, /*cv_drawdist_nights,*/ cv_drawdist_precip;
 extern consvar_t cv_fov;
 extern consvar_t cv_skybox;
+#ifdef __vita__
+// Mode graphique de la console : "Quality" / "Performance" (preset de reglages).
+extern consvar_t cv_vitaquality;
+#endif
 extern consvar_t cv_tailspickup;
 
 // Called by startup code.

@@ -349,6 +349,14 @@ void F_RunWipe(UINT8 wipetype, boolean drawMenu)
 	UINT8 wipeframe = 0;
 	fademask_t *fmask;
 
+#if defined(HWRENDER) && defined(__vita__)
+	/* vitaGL n'a pas glCopyTexImage2D : les textures de wipe restent vides
+	   et la transition ne serait qu'un flash noir. Transition instantanée,
+	   comme le faisait le port srb2-vita. */
+	if (rendermode == render_opengl)
+		return;
+#endif
+
 	paldiv = FixedDiv(257<<FRACBITS, 11<<FRACBITS);
 
 	// Init the wipe

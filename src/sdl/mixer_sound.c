@@ -19,6 +19,10 @@
 #include "../w_wad.h"
 #include "../z_zone.h"
 #include "../byteptr.h"
+#include "../i_time.h"
+#include "../i_system.h"
+#include "../doomstat.h"  // netgame
+#include "../d_clisrv.h"  // NetKeepAlive (le decodage peut durer plusieurs secondes)
 
 #ifdef _MSC_VER
 #pragma warning(disable : 4214 4244)
@@ -171,7 +175,17 @@ void I_StartupSound(void)
 	Mix_Init(MIX_INIT_FLAC|MIX_INIT_MOD|MIX_INIT_MP3|MIX_INIT_OGG);
 #endif
 
+#ifdef __vita__
+	/* Tampon DOUBLE (4096 au lieu de 2048). Le thread audio decode la musique a
+	   chaque reveil : a 2048 echantillons il doit tenir une echeance toutes les
+	   ~46 ms, ce qu'il rate pendant les chargements (le CPU est pris par le
+	   decodage des sons et par la mise en place du niveau) — d'ou la musique de
+	   fond HACHEE. A 4096, il a ~93 ms de marge : deux fois plus de tolerance.
+	   Cout : ~46 ms de latence supplementaire sur les bruitages, imperceptible. */
+	if (Mix_OpenAudio(44100, AUDIO_S16SYS, 2, 4096) < 0)
+#else
 	if (Mix_OpenAudio(44100, AUDIO_S16SYS, 2, 2048) < 0)
+#endif
 	{
 		CONS_Alert(CONS_ERROR, "Error starting SDL_Mixer: %s\n", Mix_GetError());
 		// call to start audio failed -- we do not have it
@@ -329,7 +343,32 @@ static Mix_Chunk *ds2chunk(void *stream)
 	return Mix_QuickLoad_RAW(sound, (Uint32)((UINT8*)d-sound));
 }
 
+#ifdef __vita__
+/* PROFILEUR (temporaire) : le prechargement audio ne couvre que les LUMPS BRUTS.
+   La CONVERSION (ds2chunk : 8 bits mono -> 16 bits stereo 44 kHz, + le Z_Malloc du
+   tampon) a lieu au PREMIER usage de chaque son, donc pendant S_StartSound, donc
+   DANS P_Ticker : elle tombe dans la « simu » du profileur et aucun compteur ne la
+   voyait. Suspect n°1 des pics inexpliques. Remis a zero a chaque frame (i_video.c). */
+static void *I_GetSfx_impl(sfxinfo_t *sfx);
+static void VitaWarm_Remember(sfxinfo_t *sfx);
+
 void *I_GetSfx(sfxinfo_t *sfx)
+{
+	void *ret = I_GetSfx_impl(sfx);
+
+	/* Ce son a du etre decode : on le note dans la liste chaude pour qu'il soit
+	   precharge au prochain chargement (c'est ainsi que la liste se construit toute
+	   seule, sans qu'on ait a deviner quoi que ce soit). */
+	if (ret)
+		VitaWarm_Remember(sfx);
+
+	return ret;
+}
+
+static void *I_GetSfx_impl(sfxinfo_t *sfx)
+#else
+void *I_GetSfx(sfxinfo_t *sfx)
+#endif
 {
 	void *lump;
 	Mix_Chunk *chunk;
@@ -447,6 +486,255 @@ void *I_GetSfx(sfxinfo_t *sfx)
 	return NULL; // haven't been able to get anything
 }
 
+#ifdef __vita__
+#include <psp2/io/fcntl.h>
+#include <psp2/kernel/threadmgr.h>
+#include <psp2/kernel/processmgr.h> // sceKernelGetProcessTimeWide
+
+/* ======================================================================
+   LISTE CHAUDE : on precharge les sons QUE LE JEU UTILISE VRAIMENT
+   ======================================================================
+   MESURE (console) : 926 sons uniques = 224,2 Mo une fois decodes. Impossible de
+   tout garder (tas de 256 Mo, deja bien rempli — un essai a fini en data abort dans
+   vorbis_synthesis). Et le decoupage du moteur ne sauve pas : les « fixes » pesent
+   215,8 Mo a eux seuls, les voix des persos seulement 8,4 Mo.
+
+   MAIS une course n'en reveille qu'une QUINZAINE. Le sous-ensemble utile est
+   minuscule ; simplement, aucune regle statique ne permet de le designer d'avance
+   (et une liste ecrite a la main se trompe TOUJOURS : celle des musiques oubliait
+   la moitie des pistes).
+
+   Alors on laisse le jeu le dire : chaque son reellement decode est note dans
+   ux0:data/srb2kart/sfxwarm.txt, et au demarrage suivant on precharge cette liste
+   pendant l'ecran de chargement. Auto-correctif (un nouveau perso, un objet rare ou
+   un addon s'ajoutent tout seuls), borne en memoire, et sans aucun jugement de ma
+   part. Le fichier est livre pre-rempli avec le VPK : des la premiere partie, la
+   liste est deja chaude. */
+
+#define VITA_WARM_FILE "ux0:data/srb2kart/sfxwarm.txt"
+#define VITA_WARM_BUDGET (80u * 1024u * 1024u) /* garde-fou memoire */
+
+static UINT8 *vita_warm;        /* 1 = ce son est deja connu de la liste */
+static INT32 vita_warm_total;   /* sons de la liste (pour la barre de chargement) */
+static INT32 *vita_warm_idx;    /* leurs index dans S_sfx, resolus UNE fois */
+static INT32 vita_warm_idx_n;
+static UINT64 vita_warm_bytes;  /* ce que le prechargement a deja pris   */
+
+/* Note un son dans la liste chaude (appele quand il a fallu le decoder a chaud). */
+static void VitaWarm_Remember(sfxinfo_t *sfx)
+{
+	size_t idx = (size_t)(sfx - S_sfx);
+	char line[16];
+	int len;
+	SceUID fd;
+
+	if (!vita_warm || idx >= (size_t)NUMSFX || vita_warm[idx] || !sfx->name[0])
+		return;
+
+	vita_warm[idx] = 1;
+
+	len = snprintf(line, sizeof line, "%.8s\n", sfx->name);
+	fd = sceIoOpen(VITA_WARM_FILE, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+
+	if (fd >= 0)
+	{
+		sceIoWrite(fd, line, len);
+		sceIoClose(fd);
+	}
+}
+
+/* Precharge la liste chaude pendant l'ecran de chargement. */
+void I_PrecacheWarmSfx(boolean gentle)
+{
+	/* `gentle` : la musique doit continuer a jouer pendant le decodage (demo de
+	   l'ecran-titre). On s'efface alors devant le thread audio — sinon il rate ses
+	   echeances (il decode la musique toutes les ~46 ms) et la musique HACHE.
+	   Hors demo, on coupe la musique (p_setup.c) et on decode a pleine vitesse. */
+	int prio = sceKernelGetThreadCurrentPriority();
+	SceUID fd;
+	char *text;
+	SceOff size;
+	INT32 n = 0;
+	char msg[160];
+	int mlen;
+
+	if (!vita_warm)
+		vita_warm = calloc(NUMSFX, 1);
+
+	if (!vita_warm)
+		return;
+
+	fd = sceIoOpen(VITA_WARM_FILE, SCE_O_RDONLY, 0);
+
+	if (fd < 0) /* premiere partie, pas encore de liste : on apprendra en jouant */
+	{
+		CONS_Printf("No warm sound list yet - it will be built as you play.\n");
+		return;
+	}
+
+	size = sceIoLseek(fd, 0, SCE_SEEK_END);
+	sceIoLseek(fd, 0, SCE_SEEK_SET);
+
+	if (size <= 0 || size > 1024 * 1024)
+	{
+		sceIoClose(fd);
+		return;
+	}
+
+	text = malloc((size_t)size + 1);
+
+	if (!text)
+	{
+		sceIoClose(fd);
+		return;
+	}
+
+	sceIoRead(fd, text, (SceSize)size);
+	sceIoClose(fd);
+	text[size] = 0;
+
+	CONS_Printf("Decoding sounds...\n");
+
+	/* Combien de sons a decoder ? La barre affiche ainsi un avancement REEL. */
+	{
+		const char *scan = text;
+
+		vita_warm_total = 0;
+
+		while ((scan = strchr(scan, '\n')) != NULL)
+		{
+			vita_warm_total++;
+			scan++;
+		}
+
+		if (vita_warm_total < 1)
+			vita_warm_total = 1;
+	}
+
+	/* Les index des sons de la liste sont resolus UNE SEULE FOIS.
+	   Avant, on cherchait chaque nom dans les 10 643 entrees de S_sfx a CHAQUE
+	   chargement — et quand un son etait deja decode, la boucle n'en sortait meme
+	   pas : ~870 000 comparaisons de chaines pour ne rien faire. Mesure : 1,2 s de
+	   chargement perdu par course, alors qu'il n'y avait plus rien a decoder. */
+	if (!vita_warm_idx)
+	{
+		char *line = strtok(text, "\r\n");
+
+		vita_warm_idx = malloc(sizeof(INT32) * (size_t)vita_warm_total);
+		vita_warm_idx_n = 0;
+
+		while (line && vita_warm_idx)
+		{
+			INT32 i;
+
+			for (i = 1; i < NUMSFX; i++)
+			{
+				if (!S_sfx[i].name[0] || strncmp(S_sfx[i].name, line, 8))
+					continue;
+
+				if (vita_warm_idx_n < vita_warm_total)
+					vita_warm_idx[vita_warm_idx_n++] = i;
+				break;
+			}
+
+			line = strtok(NULL, "\r\n");
+		}
+	}
+
+	{
+		INT32 k;
+
+		if (gentle)
+			sceKernelChangeThreadPriority(0, prio + 16); // + = MOINS prioritaire
+
+		for (k = 0; k < vita_warm_idx_n; k++)
+		{
+			INT32 i = vita_warm_idx[k];
+			sfxinfo_t *sfx = &S_sfx[i];
+
+			VitaLoad_SetProgress(0.70f * (float)(k + 1) / (float)vita_warm_idx_n);
+
+			if (sfx->data) /* deja decode (il survit d'une course a l'autre) */
+				continue;
+
+			if (vita_warm_bytes >= VITA_WARM_BUDGET)
+				break;
+
+			sfx->data = I_GetSfx(sfx);
+
+			if (sfx->data)
+			{
+				vita_warm[i] = 1;
+				vita_warm_bytes += ((Mix_Chunk *)sfx->data)->alen;
+				n++;
+
+				/* Le lump BRUT ne sert plus a rien : le son decode est autonome
+				   (memoire SDL). On le rend au tas — qui est serre, au point qu'un
+				   malloc a deja echoue DANS LE RENDU (DrawPolygon). */
+				Z_Free(W_CacheLumpNum(sfx->lumpnum, PU_SOUND));
+			}
+
+			if (gentle)
+				sceKernelDelayThread(12000); // de l'air pour le thread audio
+
+			/* ⚠️ On peut etre EN LIGNE (le decodage prend plusieurs secondes) : sans
+			   ca, la boucle de jeu ne repond plus au serveur, qui nous deconnecte
+			   (« Server Timeout », vecu). Le moteur fait pareil dans ses propres
+			   chargements longs (cf. p_setup.c). */
+			if (netgame)
+				NetKeepAlive();
+		}
+
+		if (gentle)
+			sceKernelChangeThreadPriority(0, prio); // on reprend notre priorite
+	}
+
+	free(text);
+
+	mlen = snprintf(msg, sizeof msg,
+		"Warm sound list: %d sounds decoded (%.1f MB)\n",
+		(int)n, (double)vita_warm_bytes / (1024.0 * 1024.0));
+	CONS_Printf("%s", msg);
+}
+#endif
+
+
+
+#ifdef __vita__
+/* Appelee a la place de S_ClearSfx() au chargement d'un niveau (s_sound.c).
+
+   PROBLEME (remonte par Julien) : relancer une course rechargeait TOUT — plusieurs
+   secondes — alors que les sons etaient deja en memoire, identiques, decodes trois
+   secondes plus tot. En cause : S_ClearSfx() libere TOUS les bruitages a chaque
+   chargement de niveau, et on les redecodait.
+
+   POURQUOI le jeu les libere : juste apres, il purge la zone (Z_FreeTags). Les sons
+   au format DOOM y sont alloues (ds2chunk -> Z_Malloc) : les garder laisserait des
+   pointeurs fous. Mais nos sons sont des OGG decodes par SDL_mixer, dans la memoire
+   SDL — la purge de la zone ne les concerne pas.
+
+   On ne libere donc QUE les sons adosses a la zone. Le moteur sait deja les
+   reconnaitre : Mix_Chunk->allocated == 0 signifie « c'est moi qui ai alloue le
+   tampon » (donc Z_Malloc), 1 signifie « SDL l'a alloue » — I_FreeSfx s'en sert
+   deja. Resultat : relancer la meme course est de nouveau immediat. */
+void I_ClearSfxKeepDecoded(void)
+{
+	INT32 i;
+
+	for (i = 1; i < NUMSFX; i++)
+	{
+		Mix_Chunk *chunk = (Mix_Chunk *)S_sfx[i].data;
+
+		if (!chunk)
+			continue;
+
+		if (chunk->allocated == 0) /* tampon dans la ZONE : il va etre purge */
+			I_FreeSfx(&S_sfx[i]);
+		/* sinon : memoire SDL, il survit a Z_FreeTags — on le garde */
+	}
+}
+#endif
+
 void I_FreeSfx(sfxinfo_t *sfx)
 {
 	if (sfx->data)
@@ -517,6 +805,7 @@ static UINT32 get_real_volume(UINT8 volume)
 		return ((UINT32)31*128/31); // volume = 31
 	else
 #endif
+	
 		// convert volume to mixer's 128 scale
 		// then apply internal_volume as a percentage
 		return ((UINT32)volume*128/31) * (UINT32)internal_volume / 100;
@@ -887,6 +1176,14 @@ UINT32 I_GetSongPosition(void)
 /// Music Playback
 /// ------------------------
 
+#ifdef __vita__
+/* INSTRUMENTATION (temporaire) : les pics mesures (jusqu'a 1 SECONDE sur une
+   frame) sont dans TryRunTics, pas dans le rendu. Une pause pareille n'est pas
+   du calcul : c'est de l'attente disque. Suspect n°1 = le chargement audio
+   (music.kart fait 105 Mo, lu depuis la carte memoire EN PLEINE COURSE).
+   Cumule ici, lu et remis a zero par le profileur (i_video.c). */
+#endif
+
 boolean I_LoadSong(char *data, size_t len)
 {
 	const char *key1 = "LOOP";
@@ -1132,7 +1429,7 @@ void I_SetMusicVolume(UINT8 volume)
 	Mix_VolumeMusic(get_real_volume(music_volume));
 }
 
-boolean I_SetSongTrack(int track)
+boolean I_SetSongTrack(INT32 track)
 {
 #ifdef HAVE_LIBGME
 	if (current_track == track)

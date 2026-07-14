@@ -791,6 +791,10 @@ static void Y_UpdateRecordReplays(void)
 //
 void Y_StartIntermission(void)
 {
+	/* NOTE vita : ne PAS purger HWR_FreeTextureCache() ici — testé le
+	   13/07, data abort dans HWR_GetPatch (patch encore référencé).
+	   L'OOM de fin de course est traité par le tas de 256 Mo + mémoire
+	   étendue (d_main.c / param.sfo ATTRIBUTE2=12). */
 	intertic = -1;
 
 #ifdef PARANOIA
@@ -908,7 +912,7 @@ static void Y_FollowIntermission(void)
 	G_AfterIntermission();
 }
 
-#define UNLOAD(x) Z_ChangeTag(x, PU_CACHE); x = NULL
+#define UNLOAD(x) W_UnlockCachedPatch(x); x = NULL
 
 //
 // Y_UnloadData
@@ -917,8 +921,6 @@ static void Y_UnloadData(void)
 {
 	// In hardware mode, don't Z_ChangeTag a pointer returned by W_CachePatchName().
 	// It doesn't work and is unnecessary.
-	if (rendermode != render_soft)
-		return;
 
 	// unload the background patches
 	UNLOAD(bgpatch);
@@ -1556,9 +1558,6 @@ void Y_EndVote(void)
 static void Y_UnloadVoteData(void)
 {
 	voteclient.loaded = false;
-
-	if (rendermode != render_soft)
-		return;
 
 	UNLOAD(widebgpatch);
 	UNLOAD(bgpatch);

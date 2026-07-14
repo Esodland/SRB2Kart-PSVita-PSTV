@@ -204,7 +204,11 @@ HMS_connect (const char *format, ...)
 	if (cv_masterserver_debug.value)
 	{
 		curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+#ifdef LOGMESSAGES
+		/* logstream n'existe que sous LOGMESSAGES (Windows/Unix) : bug amont,
+		   invisible tant que personne ne compilait curl ailleurs. */
 		curl_easy_setopt(curl, CURLOPT_STDERR, logstream);
+#endif
 	}
 
 	if (M_CheckParm("-bindaddr") && M_IsNextParm())
@@ -215,6 +219,15 @@ HMS_connect (const char *format, ...)
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+#ifdef __vita__
+	/* Le master server est en HTTPS. Notre libcurl embarque son propre OpenSSL
+	   (il ne passe PAS par SceSsl : iTLS-Enso n'a donc aucune prise dessus), et
+	   la console n'a evidemment pas de magasin d'autorites de certification a
+	   l'emplacement Unix habituel : sans ca, curl rejette le certificat.
+	   On pointe donc explicitement le bundle Mozilla livre avec le jeu. */
+	curl_easy_setopt(curl, CURLOPT_CAINFO, "ux0:data/srb2kart/cacert.pem");
+#endif
 
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, cv_masterserver_timeout.value);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HMS_on_read);

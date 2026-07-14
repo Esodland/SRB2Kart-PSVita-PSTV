@@ -78,7 +78,7 @@ typedef LPVOID (WINAPI *p_MapViewOfFile) (HANDLE, DWORD, DWORD, DWORD, SIZE_T);
 #include "SDL_cpuinfo.h"
 #define HAVE_SDLCPUINFO
 
-#if defined (__unix__) || defined(__APPLE__) || (defined (UNIXCOMMON) && !defined (__HAIKU__))
+#if defined (__unix__) || defined(__APPLE__) || (defined (UNIXCOMMON) && !defined (__HAIKU__) && !defined (__SWITCH__)) && !defined(__vita__)
 #if defined (__linux__)
 #include <sys/vfs.h>
 #else
@@ -138,7 +138,10 @@ typedef LPVOID (WINAPI *p_MapViewOfFile) (HANDLE, DWORD, DWORD, DWORD, SIZE_T);
 #endif
 
 // Locations for searching the srb2.srb
-#if defined (__unix__) || defined(__APPLE__) || defined (UNIXCOMMON)
+#if defined (__vita__)
+#define DEFAULTWADLOCATION1 "ux0:/data/srb2kart"
+#define DEFAULTSEARCHPATH1 "ux0:/data/srb2kart"
+#elif defined (__unix__) || defined(__APPLE__) || defined (UNIXCOMMON) && !defined(__SWITCH__)
 #define DEFAULTWADLOCATION1 "/usr/local/share/games/SRB2Kart"
 #define DEFAULTWADLOCATION2 "/usr/local/games/SRB2Kart"
 #define DEFAULTWADLOCATION3 "/usr/share/games/SRB2Kart"
@@ -146,6 +149,23 @@ typedef LPVOID (WINAPI *p_MapViewOfFile) (HANDLE, DWORD, DWORD, DWORD, SIZE_T);
 #define DEFAULTSEARCHPATH1 "/usr/local/games"
 #define DEFAULTSEARCHPATH2 "/usr/games"
 #define DEFAULTSEARCHPATH3 "/usr/local"
+#endif
+
+#ifdef __vita__
+/* Pas de vraie message box : le backend Vita de SDL passe par
+   gxm_swap_for_common_dialog, qui suppose un renderer GXM SDL — inexistant
+   en mode vitaGL -> data abort qui masque l'erreur d'origine. On
+   journalise l'erreur dans error.txt à la place. */
+static void VitaErrorLog(const char *title, const char *message)
+{
+	FILE *f = fopen("ux0:/data/srb2kart/error.txt", "a");
+	if (f)
+	{
+		fprintf(f, "[%s] %s\n", title, message ? message : "(null)");
+		fclose(f);
+	}
+}
+#define SDL_ShowSimpleMessageBox(flags, title, message, window) VitaErrorLog(title, message)
 #endif
 
 /**	\brief WAD file to look for
@@ -157,6 +177,11 @@ typedef LPVOID (WINAPI *p_MapViewOfFile) (HANDLE, DWORD, DWORD, DWORD, SIZE_T);
 static char returnWadPath[256];
 
 //Alam_GBC: SDL
+
+#ifdef __vita__
+#include <psp2/io/stat.h>  // sceIoMkdir (I_mkdir : sans lui, aucun dossier n'est cree)
+#include <psp2/appmgr.h>   // sceAppMgrLoadExec (relance de l'application)
+#endif
 
 #include "../doomdef.h"
 #include "../m_misc.h"
@@ -723,6 +748,14 @@ void I_OutputMsg(const char *fmt, ...)
 #endif
 
 	len = strlen(txt);
+
+#ifdef __vita__
+	{
+		// journal de démarrage à l'écran (voir i_main.c) ; inactif après la 1re frame
+		extern void VitaBoot_Log(const char *msg);
+		VitaBoot_Log(txt);
+	}
+#endif
 
 #ifdef LOGMESSAGES
 	if (logstream)
@@ -1346,7 +1379,7 @@ static int joy_open(int joyindex)
 
 		JoyInfo.balls = 0;
 
-		//Joystick.bGamepadStyle = !stricmp(SDL_JoystickName(JoyInfo.dev), "pad");
+		//Joystick.bGamepadStyle = !strcasecmp(SDL_JoystickName(JoyInfo.dev), "pad");
 
 		return JoyInfo.axises;
 	}
@@ -1617,7 +1650,7 @@ static int joy_open2(int joyindex)
 
 		JoyInfo2.balls = 0;
 
-		//Joystick.bGamepadStyle = !stricmp(SDL_JoystickName(JoyInfo2.dev), "pad");
+		//Joystick.bGamepadStyle = !strcasecmp(SDL_JoystickName(JoyInfo2.dev), "pad");
 
 		return JoyInfo2.axises;
 	}
@@ -3136,6 +3169,21 @@ INT32 I_StartupSystem(void)
 	return 0;
 }
 
+#ifdef __vita__
+/* RELANCER LE JEU (commande console « restart »).
+   Le moteur Doom ne sait pas DECHARGER un WAD : une fois qu'on a rejoint un serveur
+   moddé, ses addons restent en mémoire, et il faut relancer le jeu pour en changer.
+   C'est vrai sur PC aussi (le moteur le dit lui-même : « Please restart SRB2Kart
+   before connecting », d_clisrv.c) — mais sur console, quitter puis relancer depuis
+   la LiveArea est pénible. La Vita, elle, sait recharger une application. */
+void I_RestartApp(void);
+void I_RestartApp(void)
+{
+	I_ShutdownSystem();
+	sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
+}
+#endif
+
 //
 // I_Quit
 //
@@ -3387,7 +3435,7 @@ void I_ShutdownSystem(void)
 void I_GetDiskFreeSpace(INT64 *freespace)
 {
 #if defined (__unix__) || defined(__APPLE__) || defined (UNIXCOMMON)
-#if defined (SOLARIS) || defined (__HAIKU__)
+#if defined (SOLARIS) || defined (__HAIKU__) || defined (__SWITCH__)  || defined(__vita__)
 	*freespace = INT32_MAX;
 	return;
 #else // Both Linux and BSD have this, apparently.
@@ -3467,7 +3515,14 @@ char *I_GetUserName(void)
 INT32 I_mkdir(const char *dirname, INT32 unixright)
 {
 //[segabor]
-#if defined (__unix__) || defined(__APPLE__) || defined (UNIXCOMMON) || defined (__CYGWIN__) || defined (__OS2__)
+#if defined (__vita__)
+	/* Sans ca, I_mkdir tombait dans le #else muet ci-dessous : il ne creait RIEN et
+	   renvoyait false. Consequence : le dossier DOWNLOAD n'existait jamais, et tout
+	   telechargement d'addon en multijoueur echouait (erreur propre du jeu au moment
+	   d'ecrire le fichier). Idem pour les dossiers de replays. */
+	(void)unixright;
+	return sceIoMkdir(dirname, 0777);
+#elif defined (__unix__) || defined(__APPLE__) || defined (UNIXCOMMON) || defined (__CYGWIN__) || defined (__OS2__)
 	return mkdir(dirname, unixright);
 #elif defined (_WIN32)
 	UNREFERENCED_PARAMETER(unixright); /// \todo should implement ntright under nt...

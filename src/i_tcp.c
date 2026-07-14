@@ -88,6 +88,11 @@
 #elif defined (_PS3)
 #include <net/select.h>
 #include <net/net.h>
+#elif defined(__vita__)
+// La libc du VitaSDK fournit bien getaddrinfo/inet_ntop (sockets BSD au-dessus
+// de sceNet), mais pas <sys/ioctl.h> : le non-bloquant passe par
+// setsockopt(SO_NONBLOCK), cf. UDP_Bind.
+#include <netdb.h>
 #elif !defined(USE_WINSOCK) //!HAVE_LWIP
 #include <netdb.h>
 #include <sys/ioctl.h>
@@ -151,6 +156,7 @@
 #include <lsck/lsck.h>
 #endif // libsocket
 #endif // djgpp
+
 
 typedef union
 {
@@ -954,6 +960,7 @@ static SOCKET_TYPE UDP_Bind(int family, struct sockaddr *addr, socklen_t addrlen
 	struct sockaddr_in sin;
 	socklen_t len = sizeof(sin);
 
+
 	if (s == (SOCKET_TYPE)ERRSOCKET)
 		return (SOCKET_TYPE)ERRSOCKET;
 #ifdef USE_WINSOCK
@@ -1019,7 +1026,18 @@ static SOCKET_TYPE UDP_Bind(int family, struct sockaddr *addr, socklen_t addrlen
 		return (SOCKET_TYPE)ERRSOCKET;
 	}
 
-#ifdef FIONBIO
+#if defined(__vita__)
+	// Pas de <sys/ioctl.h> sur Vita : sceNet expose le non-bloquant en option
+	// de socket (SO_NONBLOCK). Indispensable, sinon recvfrom bloque la boucle.
+	opt = true;
+	opts = (socklen_t)sizeof(opt);
+	if (setsockopt(s, SOL_SOCKET, SO_NONBLOCK, (char *)&opt, opts) != 0)
+	{
+		close(s);
+		I_OutputMsg("Setting SO_NONBLOCK on failed\n");
+		return (SOCKET_TYPE)ERRSOCKET;
+	}
+#elif defined(FIONBIO)
 	// make it non blocking
 	opt = true;
 	if (ioctl(s, FIONBIO, &trueval) != 0)
@@ -1464,6 +1482,7 @@ static boolean SOCK_GetAddr(struct sockaddr_in *sin, const char *address, const 
 
 	gaie = I_getaddrinfo(address, port, &hints, &ai);
 
+
 	if (gaie != 0)
 	{
 		I_freeaddrinfo(ai);
@@ -1474,6 +1493,14 @@ static boolean SOCK_GetAddr(struct sockaddr_in *sin, const char *address, const 
 
 	if (test)
 	{
+#ifdef __vita__
+		// Le test amont « cette adresse est-elle utilisable ? » envoie un
+		// datagramme VIDE avec un buffer NULL. sceNet le refuse (contrairement
+		// aux BSD sockets), donc TOUTES les adresses etaient rejetees, aucun
+		// noeud n'etait cree, et le client restait fige sur « Connecting to
+		// server ». On saute ce test et on garde la premiere adresse resolue.
+		// (Diagnostique par instrumentation le 13/07/2026.)
+#else
 		while (runp != NULL)
 		{
 			if (sendto(mysockets[0], NULL, 0, 0, runp->ai_addr, runp->ai_addrlen) == 0)
@@ -1481,10 +1508,12 @@ static boolean SOCK_GetAddr(struct sockaddr_in *sin, const char *address, const 
 
 			runp = runp->ai_next;
 		}
+#endif
 	}
 
 	if (runp != NULL)
 		memcpy(sin, runp->ai_addr, runp->ai_addrlen);
+
 
 	I_freeaddrinfo(ai);
 
@@ -1600,6 +1629,7 @@ static boolean SOCK_OpenSocket(void)
 
 static void AddBannedIndex(void)
 {
+#ifndef NONET
 	if (numbans >= banned_size)
 	{
 		if (banned_size == 0)
@@ -1619,6 +1649,7 @@ static void AddBannedIndex(void)
 			sizeof(banned_t) * 8
 		);
 	}
+#endif
 
 	numbans++;
 }
@@ -1704,7 +1735,7 @@ static boolean SOCK_SetBanReason(const char *reason)
 static boolean SOCK_SetUnbanTime(time_t timestamp)
 {
 #ifdef NONET
-	(void)reason;
+	(void)timestamp;
 	return false;
 #else
 	banned[numbans - 1].timestamp = timestamp;
@@ -1786,8 +1817,10 @@ static void SOCK_ClearBans(void)
 {
 	numbans = 0;
 	banned_size = 0;
+#ifndef NONET
 	Z_Free(banned);
 	banned = NULL;
+#endif
 }
 
 boolean I_InitTcpNetwork(void)

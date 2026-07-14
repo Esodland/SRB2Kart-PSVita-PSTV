@@ -1,0 +1,59 @@
+From: Esod <psvita-port>
+Subject: [PATCH] v_video: do not dereference missing credit font glyphs
+
+`hu_stuff.c` (HU_LoadGraphics) sets `cred_font[i] = NULL` whenever the
+`CRFNTxxx` lump for that character does not exist:
+
+	if (W_CheckNumForName(buffer) == LUMPERROR)
+		cred_font[i] = NULL;
+	else
+		cred_font[i] = (patch_t *)W_CachePatchName(buffer, PU_HUDGFX);
+
+But both credit-font drawing routines only check that the character is
+*within range* (CRED_FONTSTART..CRED_FONTEND), never that the glyph
+actually exists, and then dereference the pointer:
+
+	c = toupper(c) - CRED_FONTSTART;
+	if (c < 0 || c >= CRED_FONTSIZE)
+		{ ... skip ... }
+	w = SHORT(cred_font[c]->width) * dupx;   /* <-- NULL deref */
+
+The range check is not enough: '/' (0x2F), '+', '%', ':' and friends are
+all inside '!'..'Z', and SRB2Kart's data has no glyph for them.
+
+Vanilla credits happen to avoid those characters, so this never fires in
+the stock game — it is a latent crash that hits the moment anyone adds a
+credit line containing one. We hit it on the PS Vita port with a line
+reading "PS Vita / PS TV Port": opening the credits menu was an instant
+data abort (null pointer dereference) in V_CreditStringWidth.
+
+Skip characters with no glyph, exactly as if they were out of range.
+---
+ src/v_video.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+--- a/src/v_video.c
++++ b/src/v_video.c
+@@ -2083,8 +2083,11 @@ void V_DrawCreditString(fixed_t x, fixed_t y, INT32 option, const char *string)
+ 		}
+
+ 		c = toupper(c) - CRED_FONTSTART;
+-		if (c < 0 || c >= CRED_FONTSIZE)
++		// Being in range does not mean the glyph exists: hu_stuff.c leaves
++		// cred_font[c] NULL when the CRFNTxxx lump is missing (e.g. '/').
++		if (c < 0 || c >= CRED_FONTSIZE || !cred_font[c])
+ 		{
+ 			cx += (16*dupx)<<FRACBITS;
+ 			continue;
+ 		}
+
+@@ -2113,7 +2116,8 @@ INT32 V_CreditStringWidth(const char *string)
+ 	for (i = 0; i < strlen(string); i++)
+ 	{
+ 		c = toupper(string[i]) - CRED_FONTSTART;
+-		if (c < 0 || c >= CRED_FONTSIZE)
++		// Same as V_DrawCreditString: a character in range may have no glyph.
++		if (c < 0 || c >= CRED_FONTSIZE || !cred_font[c])
+ 			w += 16;
+ 		else
+ 			w += SHORT(cred_font[c]->width);

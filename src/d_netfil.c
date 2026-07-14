@@ -42,7 +42,7 @@
 #include <utime.h>
 #endif
 
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 #include "curl/curl.h"
 #endif
 
@@ -70,7 +70,7 @@
 // Prototypes
 static boolean SV_SendFile(INT32 node, const char *filename, UINT8 fileid);
 
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 size_t curlwrite_data(void *ptr, size_t size, size_t nmemb, FILE *stream);
 #if defined(CURL_AT_LEAST_VERSION) && CURL_AT_LEAST_VERSION(7, 35, 0)
 int curlprogress_callbackx(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow);
@@ -130,7 +130,7 @@ INT32 totalfilesrequestednum = 0;
 UINT32 totalfilesrequestedsize = 0;
 #endif
 
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 static CURL *http_handle;
 static CURLM *multi_handle;
 boolean curl_running = false;
@@ -556,7 +556,7 @@ INT32 CL_CheckFiles(void)
 		for (j = mainwads+1; wadfiles[j]; j++)
 		{
 			nameonly(strcpy(wadfilename, wadfiles[j]->filename));
-			if (!stricmp(wadfilename, fileneeded[i].filename) &&
+			if (!strcasecmp(wadfilename, fileneeded[i].filename) &&
 				!memcmp(wadfiles[j]->md5sum, fileneeded[i].md5sum, 16))
 			{
 				CONS_Debug(DBG_NETPLAY, "already loaded\n");
@@ -674,7 +674,7 @@ static boolean SV_SendFile(INT32 node, const char *filename, UINT8 fileid)
 	{
 		strlcpy(wadfilename, wadfiles[i]->filename, MAX_WADPATH);
 		nameonly(wadfilename);
-		if (!stricmp(wadfilename, p->id.filename))
+		if (!strcasecmp(wadfilename, p->id.filename))
 		{
 			// Copy file name with full path
 			strlcpy(p->id.filename, wadfiles[i]->filename, MAX_WADPATH);
@@ -1214,7 +1214,7 @@ filestatus_t findfile(char *filename, const UINT8 *wantedmd5sum, boolean complet
 	return (badmd5 ? FS_MD5SUMBAD : FS_NOTFOUND); // md5 sum bad or file not found
 }
 
-#ifdef HAVE_CURL
+#ifdef HAVE_CURL_MULTI
 size_t curlwrite_data(void *ptr, size_t size, size_t nmemb, FILE *stream)
 {
     size_t written;

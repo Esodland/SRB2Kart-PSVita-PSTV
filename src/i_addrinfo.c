@@ -22,7 +22,7 @@
 #endif
 #elif !defined (__DJGPP__) && !defined(_WII)
 #include <sys/socket.h>
-#ifndef _NDS
+#if !defined(_NDS) && !defined(__vita__)
 #include <arpa/inet.h>
 #endif
 #ifdef _PS3

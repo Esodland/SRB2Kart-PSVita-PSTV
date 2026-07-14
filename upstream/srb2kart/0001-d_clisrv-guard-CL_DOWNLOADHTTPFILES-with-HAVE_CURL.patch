@@ -1,0 +1,31 @@
+From: SRB2Kart PS Vita / PS TV port
+Subject: [PATCH 1/2] d_clisrv: guard CL_DOWNLOADHTTPFILES with HAVE_CURL
+
+`CL_DOWNLOADHTTPFILES` is only declared inside `#ifdef HAVE_CURL`, but the
+download-progress string uses it unconditionally, so any build with networking
+enabled and curl disabled fails to compile:
+
+    d_clisrv.c: error: 'CL_DOWNLOADHTTPFILES' undeclared
+
+That combination is unusual on desktop but it is the *normal* one on consoles:
+BSD sockets are available, libcurl is not. Without curl there is only one
+download method, so the label is constant.
+
+Found while porting SRB2Kart to the PS Vita / PS TV.
+---
+--- a/src/d_clisrv.c
++++ b/src/d_clisrv.c
+@@ -1335,9 +1335,13 @@
+ 				strncpy(tempname, filename, sizeof(tempname)-1);
+ 			}
+ 
+ 			V_DrawCenteredString(BASEVIDWIDTH/2, BASEVIDHEIGHT-58-30, 0,
++#ifdef HAVE_CURL
+ 				va(M_GetText("%s downloading"), ((cl_mode == CL_DOWNLOADHTTPFILES) ? "\x82""HTTP" : "\x85""Direct")));
++#else
++				va(M_GetText("%s downloading"), "\x85""Direct"));
++#endif
+ 			V_DrawCenteredString(BASEVIDWIDTH/2, BASEVIDHEIGHT-58-22, V_YELLOWMAP,
+ 				va(M_GetText("\"%s\""), tempname));
+ 			V_DrawString(BASEVIDWIDTH/2-128, BASEVIDHEIGHT-58, V_20TRANS|V_MONOSPACE,
+ 				va(" %4uK/%4uK",fileneeded[lastfilenum].currentsize>>10,file->totalsize>>10));

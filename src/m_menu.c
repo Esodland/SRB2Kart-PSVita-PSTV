@@ -1277,6 +1277,11 @@ static menuitem_t OP_VideoOptionsMenu[] =
 	{IT_STRING | IT_CVAR,	NULL,	"Show FPS",				&cv_ticrate,			 90},
 	{IT_STRING | IT_CVAR,	NULL,	"Vertical Sync",		&cv_vidwait,			100},
 	{IT_STRING | IT_CVAR,   NULL,   "FPS Cap",              &cv_fpscap,             110},
+#ifdef __vita__
+	// Preset console : "Performance" sacrifie modeles 3D, skybox, distance
+	// d'affichage... pour viser 60 fps constants. Reglages purement locaux.
+	{IT_STRING | IT_CVAR,   NULL,   "Graphics Mode",        &cv_vitaquality,        120},
+#endif
 
 #ifdef HWRENDER
 	{IT_SUBMENU|IT_STRING,	NULL,	"OpenGL Options...",	&OP_OpenGLOptionsDef,	130},
@@ -2441,6 +2446,19 @@ static boolean M_ChangeStringCvar(INT32 choice)
 
 	switch (choice)
 	{
+#ifdef __vita__
+		// Pas de clavier : X ouvre le clavier virtuel du systeme, pre-rempli
+		// avec la valeur courante. Couvre tous les champs texte (nom de
+		// serveur, pseudo, dossiers...).
+		case KEY_ENTER:
+			strlcpy(buf, cv->string, sizeof(buf));
+			if (I_TextInputDialog(currentMenu->menuitems[itemOn].text, buf, buf, sizeof(buf)))
+			{
+				S_StartSound(NULL,sfx_menu1);
+				CV_Set(cv, buf);
+			}
+			return true;
+#endif
 		case KEY_BACKSPACE:
 			len = strlen(cv->string);
 			if (len > 0)
@@ -2571,6 +2589,41 @@ boolean M_Responder(event_t *ev)
 			case KEY_HAT1 + 3:
 				ch = KEY_RIGHTARROW;
 				break;
+#if defined(__SWITCH__)
+			// FIXME
+
+			case KEY_JOY1 + 11:
+				ch = KEY_ESCAPE;
+				break;
+			case KEY_JOY1 + 13:
+				ch = KEY_UPARROW;
+				break;
+			case KEY_JOY1 + 15:
+				ch = KEY_DOWNARROW;
+				break;
+			case KEY_JOY1 + 12:
+				ch = KEY_LEFTARROW;
+				break;
+			case KEY_JOY1 + 14:
+				ch = KEY_RIGHTARROW;
+				break;
+#elif defined(__vita__)
+			// Boutons via SDL_GameController (énum SDL_CONTROLLER_BUTTON_*) :
+			// 0=A/croix 1=B/rond. Le D-pad arrive déjà en KEY_HAT1 (géré
+			// au-dessus), et le jeu remappe déjà nativement gc_accelerate
+			// (croix) -> ENTER et gc_systemmenu (options) -> ESC plus bas.
+			// Seul vrai ajout : rond = retour, convention PlayStation.
+			// UNIQUEMENT menu ouvert : hors menu, un remap vers ESC OUVRE le
+			// menu et vole le bouton au jeu (rond=frein était inutilisable).
+			case KEY_JOY1: // croix = valider même si accélérer est remappé
+				if (menuactive)
+					ch = KEY_ENTER;
+				break;
+			case KEY_JOY1 + 1: // rond = retour
+				if (menuactive)
+					ch = KEY_ESCAPE;
+				break;
+#endif
 		}
 	}
 	else if (menuactive)
@@ -3482,7 +3535,9 @@ void M_Ticker(void)
 	I_unlock_mutex(ms_ServerList_mutex);
 #endif
 
+#ifndef NONET
 	CL_TimeoutServerList();
+#endif
 }
 
 //
@@ -7430,7 +7485,7 @@ static void M_DrawSetupChoosePlayerMenu(void)
 		{
 			picname = strtok(Z_StrDup(description[i-1].skinname), "&");
 			for (j = 0; j < numskins; j++)
-				if (stricmp(skins[j].name, picname) == 0)
+				if (strcasecmp(skins[j].name, picname) == 0)
 				{
 					Z_Free(picname);
 					picname = skins[j].charsel;
@@ -7456,7 +7511,7 @@ static void M_DrawSetupChoosePlayerMenu(void)
 		{
 			picname = strtok(Z_StrDup(description[i+1].skinname), "&");
 			for (j = 0; j < numskins; j++)
-				if (stricmp(skins[j].name, picname) == 0)
+				if (strcasecmp(skins[j].name, picname) == 0)
 				{
 					Z_Free(picname);
 					picname = skins[j].charsel;
@@ -7481,7 +7536,7 @@ static void M_DrawSetupChoosePlayerMenu(void)
 		{
 			picname = strtok(Z_StrDup(description[i].skinname), "&");
 			for (j = 0; j < numskins; j++)
-				if (stricmp(skins[j].name, picname) == 0)
+				if (strcasecmp(skins[j].name, picname) == 0)
 				{
 					Z_Free(picname);
 					picname = skins[j].charsel;
@@ -9259,6 +9314,7 @@ static void M_DrawLevelSelectOnly(boolean leftfade, boolean rightfade)
 static void M_DrawServerMenu(void)
 {
 	M_DrawLevelSelectOnly(false, false);
+#ifndef NONET
 	if (currentMenu == &MP_ServerDef && cv_advertise.value) // Remind players where they're hosting.
 	{
 		int mservflags = V_ALLOWLOWERCASE;
@@ -9268,6 +9324,7 @@ static void M_DrawServerMenu(void)
 			mservflags = mservflags|warningflags;
 		V_DrawCenteredThinString(BASEVIDWIDTH/2, BASEVIDHEIGHT-12, mservflags, va("Master Server: %s", cv_masterserver.string));
 	}
+#endif
 	M_DrawGenericMenu();
 }
 
@@ -9533,6 +9590,13 @@ static void M_HandleConnectIP(INT32 choice)
 		case KEY_ENTER:
 			S_StartSound(NULL,sfx_menu1); // Tails
 			currentMenu->lastOn = itemOn;
+#ifdef __vita__
+			// Pas de clavier sur la console : X ouvre le clavier virtuel du
+			// systeme, pre-rempli avec l'IP courante. On ne se connecte que si
+			// l'utilisateur valide (annuler laisse l'IP telle quelle).
+			if (!I_TextInputDialog("Adresse IP du serveur", setupm_ip, setupm_ip, sizeof(setupm_ip)))
+				break;
+#endif
 			M_ConnectIP(1);
 			break;
 
@@ -9909,6 +9973,16 @@ static void M_HandleSetupMultiPlayer(INT32 choice)
 				setupm_name[0] = 0;
 			}
 			break;
+
+#ifdef __vita__
+		// Pas de clavier : X sur la ligne « Name » ouvre le clavier virtuel.
+		case KEY_ENTER:
+			if (itemOn != 0)
+				break;
+			if (I_TextInputDialog("Pseudo", setupm_name, setupm_name, sizeof(setupm_name)))
+				S_StartSound(NULL,sfx_menu1);
+			break;
+#endif
 
 		default:
 			if (choice < 32 || choice > 127 || itemOn != 0)

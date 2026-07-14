@@ -2084,7 +2084,10 @@ void V_DrawCreditString(fixed_t x, fixed_t y, INT32 option, const char *string)
 		}
 
 		c = toupper(c) - CRED_FONTSTART;
-		if (c < 0 || c >= CRED_FONTSIZE)
+		// Bug amont : etre DANS la plage ne garantit pas que le glyphe existe.
+		// hu_stuff.c met cred_font[c] a NULL quand le lump CRFNTxxx est absent (c'est
+		// le cas de « / », par exemple) : sans ce test, le jeu plante sur les credits.
+		if (c < 0 || c >= CRED_FONTSIZE || !cred_font[c])
 		{
 			cx += (16*dupx)<<FRACBITS;
 			continue;
@@ -2113,7 +2116,9 @@ INT32 V_CreditStringWidth(const char *string)
 	for (i = 0; i < strlen(string); i++)
 	{
 		c = toupper(string[i]) - CRED_FONTSTART;
-		if (c < 0 || c >= CRED_FONTSIZE)
+		// Meme bug amont qu'a V_DrawCreditString : un caractere dans la plage peut
+		// tres bien n'avoir AUCUN glyphe (cred_font[c] == NULL, cf. hu_stuff.c).
+		if (c < 0 || c >= CRED_FONTSIZE || !cred_font[c])
 			w += 16;
 		else
 			w += SHORT(cred_font[c]->width);

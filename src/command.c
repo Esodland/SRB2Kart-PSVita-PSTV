@@ -445,7 +445,7 @@ void COM_AddCommand(const char *name, com_func_t func)
 	// fail if the command already exists
 	for (cmd = com_commands; cmd; cmd = cmd->next)
 	{
-		if (!stricmp(name, cmd->name)) //case insensitive now that we have lower and uppercase!
+		if (!strcasecmp(name, cmd->name)) //case insensitive now that we have lower and uppercase!
 		{
 #ifdef HAVE_BLUA
 			// don't I_Error for Lua commands
@@ -484,7 +484,7 @@ int COM_AddLuaCommand(const char *name)
 	// command already exists
 	for (cmd = com_commands; cmd; cmd = cmd->next)
 	{
-		if (!stricmp(name, cmd->name)) //case insensitive now that we have lower and uppercase!
+		if (!strcasecmp(name, cmd->name)) //case insensitive now that we have lower and uppercase!
 		{
 			// replace the built in command.
 			cmd->function = COM_Lua_f;
@@ -512,7 +512,7 @@ static boolean COM_Exists(const char *com_name)
 	xcommand_t *cmd;
 
 	for (cmd = com_commands; cmd; cmd = cmd->next)
-		if (!stricmp(com_name, cmd->name))
+		if (!strcasecmp(com_name, cmd->name))
 			return true;
 
 	return false;
@@ -564,7 +564,7 @@ static void COM_ExecuteString(char *ptext)
 	// check functions
 	for (cmd = com_commands; cmd; cmd = cmd->next)
 	{
-		if (!stricmp(com_argv[0], cmd->name)) //case insensitive now that we have lower and uppercase!
+		if (!strcasecmp(com_argv[0], cmd->name)) //case insensitive now that we have lower and uppercase!
 		{
 			cmd->function();
 			return;
@@ -574,7 +574,7 @@ static void COM_ExecuteString(char *ptext)
 	// check aliases
 	for (a = com_alias; a; a = a->next)
 	{
-		if (!stricmp(com_argv[0], a->name))
+		if (!strcasecmp(com_argv[0], a->name))
 		{
 			if (recursion > MAX_ALIAS_RECURSION)
 				CONS_Alert(CONS_WARNING, M_GetText("Alias recursion cycle detected!\n"));
@@ -1062,7 +1062,7 @@ consvar_t *CV_FindVar(const char *name)
 	consvar_t *cvar;
 
 	for (cvar = consvar_vars; cvar; cvar = cvar->next)
-		if (!stricmp(name,cvar->name))
+		if (!strcasecmp(name,cvar->name))
 			return cvar;
 
 	return NULL;
@@ -1297,7 +1297,7 @@ static void Setvalue(consvar_t *var, const char *valstr, boolean stealth)
 
 			// check first strings
 			for (i = 0; var->PossibleValue[i].strvalue; i++)
-				if (!stricmp(var->PossibleValue[i].strvalue, valstr))
+				if (!strcasecmp(var->PossibleValue[i].strvalue, valstr))
 					goto found;
 			if (v != INT32_MIN)
 			{
@@ -1310,9 +1310,9 @@ static void Setvalue(consvar_t *var, const char *valstr, boolean stealth)
 			if (var->PossibleValue == CV_OnOff || var->PossibleValue == CV_YesNo)
 			{
 				overrideval = -1;
-				if (!stricmp(valstr, "on") || !stricmp(valstr, "yes"))
+				if (!strcasecmp(valstr, "on") || !strcasecmp(valstr, "yes"))
 					overrideval = 1;
-				else if (!stricmp(valstr, "off") || !stricmp(valstr, "no"))
+				else if (!strcasecmp(valstr, "off") || !strcasecmp(valstr, "no"))
 					overrideval = 0;
 
 				if (overrideval != -1)
@@ -1547,7 +1547,7 @@ static void CV_SetCVar(consvar_t *var, const char *value, boolean stealth)
 	if (!var->string)
 		I_Error("CV_Set: %s no string set!\n", var->name);
 #endif
-	if (!var || !var->string || !value || !stricmp(var->string, value))
+	if (!var || !var->string || !value || !strcasecmp(var->string, value))
 		return; // no changes
 
 	if (var->flags & CV_NETVAR)

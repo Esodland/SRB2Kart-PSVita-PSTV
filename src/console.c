@@ -1711,6 +1711,13 @@ static void CON_DrawConsole(void)
 	con_hudupdate = true; // always refresh while console is on
 
 	// draw console background
+#ifdef __vita__
+	/* Pendant le chargement (30 s sur console), le splash KARTKREW est
+	   clair et le texte console blanc : illisible. Fond noir à la place. */
+	if (con_startup)
+		V_DrawFill(0, 0, BASEVIDWIDTH, BASEVIDHEIGHT, 31); // fond noir opaque
+	else
+#endif
 	if (cons_backpic.value || con_forcepic)
 	{
 		patch_t *con_backpic = W_CachePatchName("KARTKREW", PU_CACHE);

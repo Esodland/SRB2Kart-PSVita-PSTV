@@ -942,7 +942,7 @@ void Command_Drop(void)
 		return;
 	}
 
-	if (!(stricmp(COM_Argv(1), "reset") && stricmp(COM_Argv(1), "cancel") && stricmp(COM_Argv(1), "stop")))
+	if (!(strcasecmp(COM_Argv(1), "reset") && strcasecmp(COM_Argv(1), "cancel") && strcasecmp(COM_Argv(1), "stop")))
 	{
 		memset(packetdropquantity, 0, sizeof(packetdropquantity));
 		return;
@@ -962,13 +962,13 @@ void Command_Drop(void)
 
 	packetname = COM_Argv(1);
 
-	if (!(stricmp(packetname, "all") && stricmp(packetname, "any")))
+	if (!(strcasecmp(packetname, "all") && strcasecmp(packetname, "any")))
 		for (i = 0; i < NUMPACKETTYPE; i++)
 			packetdropquantity[i] = packetquantity;
 	else
 	{
 		for (i = 0; i < NUMPACKETTYPE; i++)
-			if (!stricmp(packetname, packettypename[i]))
+			if (!strcasecmp(packetname, packettypename[i]))
 			{
 				packetdropquantity[i] = packetquantity;
 				return;

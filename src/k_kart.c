@@ -6411,6 +6411,14 @@ void K_CheckSpectateStatus(void)
 			break;
 
 		// This person has their reentry cooldown active.
+		// NE PAS "CORRIGER" : oui, c'est players[i] alors que i est l'index
+		// dans respawnlist et pas le numero du joueur (la ligne suivante, elle,
+		// utilise bien players[respawnlist[i]]) — c'est un bug amont. Mais
+		// K_CheckSpectateStatus est appelee par G_Ticker sur TOUTES les
+		// machines : le netcode est un lockstep deterministe, donc toute
+		// divergence ici = « synch failure » contre un serveur en version
+		// d'origine, precisement quand un spectateur veut rentrer. Teste et
+		// constate le 13/07/2026. Le bug doit rester identique partout.
 		if (players[i].spectatorreentry > 0 && numingame > 0)
 			continue;
 

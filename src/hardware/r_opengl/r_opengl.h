@@ -20,6 +20,57 @@
 #ifndef _R_OPENGL_H_
 #define _R_OPENGL_H_
 
+#ifdef __vita__
+#ifndef APIENTRY
+#define APIENTRY
+#endif
+#include <vitaGL.h>
+#define GL_COMPILE_STATUS 0x8B81
+#define GL_INFO_LOG_LENGTH 0x8B84
+#define GL_LINK_STATUS 0x8B82
+#define GL_UNSIGNED_INT 0x1405
+#define GL_NORMALIZE 0x0BA1
+#define GL_NORMAL_ARRAY 0x8075
+#define GL_PROJECTION_MATRIX 0x1701
+#define GL_PACK_ALIGNMENT 0x0D05
+#define GL_UNPACK_ALIGNMENT 0x0CF5
+#define GL_CLAMP 0x2900
+#define GL_RGB5_A1 0x8057
+
+#define pglActiveTexture glActiveTexture
+#define pglClientActiveTexture glClientActiveTexture
+#define pglColorPointer glColorPointer
+#define pglGenBuffers glGenBuffers
+#define pglBindBuffer glBindBuffer
+#define pglBufferData glBufferData
+#define pglDeleteBuffers glDeleteBuffers
+
+#define pglMultiTexCoord2f(a,b,c)
+#define pglMultiTexCoord2fv(a,b)
+#define pgluBuild2DMipmaps(a,b,c,d,e,f,g) 0
+
+#define pglUseProgram(a)
+#define pglCreateProgram() 0
+#define pglCreateShader(a) 0
+#define pglShaderSource(a,b,c,d)
+#define pglCompileShader(a)
+#define pglGetShaderiv(a,b,c)
+#define pglGetShaderInfoLog(a,b,c,d)
+#define pglDeleteShader(a)
+#define pglAttachShader(a,b)
+#define pglLinkProgram(a)
+#define pglGetProgramiv(a,b,c)
+#define pglUniform1f(a,b)
+#define pglUniform2f(a,b,c)
+#define pglUniform3f(a,b,c,d)
+#define pglUniform4f(a,b,c,d,e)
+#define pglUniform1i(a,b)
+#define pglUniform1fv(a,b,c)
+#define pglUniform2fv(a,b,c)
+#define pglUniform3fv(a,b,c)
+#define pglGetUniformLocation(a,b) 0
+#endif
+
 #ifdef HAVE_SDL
 #define _MATH_DEFINES_DEFINED
 
@@ -134,3 +185,4 @@ typedef enum
 } oglflags_t;
 
 #endif
+

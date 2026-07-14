@@ -1,0 +1,80 @@
+From: Esod <psvita-port>
+Subject: [PATCH] r_opengl: check malloc() results in the DrawPolygon batching arrays
+
+When the batching arrays are full, DrawPolygon doubles them:
+
+	polygonArrayAllocSize *= 2;
+	new_array = malloc(polygonArrayAllocSize * sizeof(PolygonArrayEntry));
+	memcpy(new_array, polygonArray, polygonArraySize * sizeof(...));   /* <-- */
+	...
+	polygonIndexArray = malloc(polygonArrayAllocSize * sizeof(unsigned int));
+
+None of these mallocs are checked. Under memory pressure the memcpy (or
+the next write through polygonArray / polygonIndexArray) goes through a
+NULL pointer.
+
+Two things make this worth fixing beyond the obvious:
+
+1. The crash lands *in the renderer*, while the actual cause is memory
+   exhaustion somewhere else entirely. We spent a while chasing a phantom
+   OpenGL bug on the PS Vita (data abort at `polygonArray[polygonArraySize].surf
+   = *pSurf;`) before realising the heap was simply full — the renderer was
+   the victim, not the culprit. A NULL check turns a mystifying data abort
+   into a dropped polygon.
+
+2. `polygonArrayAllocSize` was already doubled *before* the allocations, so
+   on failure the state was left describing a buffer that does not exist.
+   The patch only commits the new size once both allocations succeed.
+
+Losing a polygon when the heap is exhausted is not great, but it is vastly
+better than corrupting memory, and the frame after usually recovers.
+---
+ src/hardware/r_opengl/r_opengl.c | 24 ++++++++++++++++++-----
+ 1 file changed, 19 insertions(+), 5 deletions(-)
+
+--- a/src/hardware/r_opengl/r_opengl.c
++++ b/src/hardware/r_opengl/r_opengl.c
+@@ -2344,24 +2344,38 @@ EXPORT void HWRAPI(DrawPolygon) (FSurfaceInfo *pSurf, FOutVector *pOutVerts, FUI
+ 		if (polygonArraySize == polygonArrayAllocSize)
+ 		{
+ 			PolygonArrayEntry* new_array;
++			unsigned int* new_index_array;
+ 			// ran out of space, make new array double the size
+-			polygonArrayAllocSize *= 2;
+-			new_array = malloc(polygonArrayAllocSize * sizeof(PolygonArrayEntry));
++			new_array = malloc(polygonArrayAllocSize * 2 * sizeof(PolygonArrayEntry));
++			new_index_array = new_array ? malloc(polygonArrayAllocSize * 2 * sizeof(unsigned int)) : NULL;
++
++			if (!new_array || !new_index_array)
++			{
++				free(new_array);
++				free(new_index_array);
++				return; // out of memory: drop this polygon rather than corrupt memory
++			}
++
++			polygonArrayAllocSize *= 2;
+ 			memcpy(new_array, polygonArray, polygonArraySize * sizeof(PolygonArrayEntry));
+ 			free(polygonArray);
+ 			polygonArray = new_array;
+ 			// also need to redo the index array, dont need to copy it though
+ 			free(polygonIndexArray);
+-			polygonIndexArray = malloc(polygonArrayAllocSize * sizeof(unsigned int));
++			polygonIndexArray = new_index_array;
+ 		}
+
+ 		while (unsortedVertexArraySize + (int)iNumPts > unsortedVertexArrayAllocSize)
+ 		{
+ 			FOutVector* new_array;
+ 			// need more space for vertices in unsortedVertexArray
+-			unsortedVertexArrayAllocSize *= 2;
+-			new_array = malloc(unsortedVertexArrayAllocSize * sizeof(FOutVector));
++			new_array = malloc(unsortedVertexArrayAllocSize * 2 * sizeof(FOutVector));
++
++			if (!new_array)
++				return; // out of memory: drop this polygon
++
++			unsortedVertexArrayAllocSize *= 2;
+ 			memcpy(new_array, unsortedVertexArray, unsortedVertexArraySize * sizeof(FOutVector));
+ 			free(unsortedVertexArray);
+ 			unsortedVertexArray = new_array;
+ 		}

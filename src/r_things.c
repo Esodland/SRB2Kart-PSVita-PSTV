@@ -2737,7 +2737,7 @@ INT32 R_SkinAvailable(const char *name)
 
 	for (i = 0; i < numskins; i++)
 	{
-		if (stricmp(skins[i].name,name)==0)
+		if (strcasecmp(skins[i].name,name)==0)
 			return i;
 	}
 	return -1;
@@ -2752,7 +2752,7 @@ boolean SetPlayerSkin(INT32 playernum, const char *skinname)
 	for (i = 0; i < numskins; i++)
 	{
 		// search in the skin list
-		if (stricmp(skins[i].name, skinname) == 0)
+		if (strcasecmp(skins[i].name, skinname) == 0)
 		{
 			SetPlayerSkinByNum(playernum, i);
 			return true;
@@ -2901,7 +2901,7 @@ void R_AddSkins(UINT16 wadnum)
 			if (!value)
 				I_Error("R_AddSkins: syntax error in S_SKIN lump# %d(%s) in WAD %s\n", lump, W_CheckNameForNumPwad(wadnum,lump), wadfiles[wadnum]->filename);
 
-			if (!stricmp(stoken, "name"))
+			if (!strcasecmp(stoken, "name"))
 			{
 				// the skin name must uniquely identify a single skin
 				// I'm lazy so if name is already used I leave the 'skin x'
@@ -2945,7 +2945,7 @@ void R_AddSkins(UINT16 wadnum)
 						if (*value == '_') *value = ' '; // turn _ into spaces.
 				}
 			}
-			else if (!stricmp(stoken, "realname"))
+			else if (!strcasecmp(stoken, "realname"))
 			{ // Display name (eg. "Knuckles")
 				realname = true;
 				STRBUFCPY(skin->realname, value);
@@ -2954,7 +2954,7 @@ void R_AddSkins(UINT16 wadnum)
 				if (!hudname)
 					STRBUFCPY(skin->hudname, skin->realname);
 			}
-			else if (!stricmp(stoken, "hudname"))
+			else if (!strcasecmp(stoken, "hudname"))
 			{ // Life icon name (eg. "K.T.E")
 				hudname = true;
 				STRBUFCPY(skin->hudname, value);
@@ -3020,7 +3020,7 @@ void R_AddSkins(UINT16 wadnum)
 					if (!S_sfx[i].name)
 						continue;
 					if (S_sfx[i].skinsound != -1
-						&& !stricmp(S_sfx[i].name,
+						&& !strcasecmp(S_sfx[i].name,
 							stoken + 2))
 					{
 						skin->soundsid[S_sfx[i].skinsound] =

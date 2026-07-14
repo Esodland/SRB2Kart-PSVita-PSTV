@@ -12,6 +12,7 @@
 /// \brief Archiving: SaveGame I/O, Thinker, Ticker
 
 #include "doomstat.h"
+#include "i_time.h"
 #include "g_game.h"
 #include "g_input.h"
 #include "p_local.h"

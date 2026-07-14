@@ -30,7 +30,7 @@ void I_PlayCD(UINT8 track, UINT8 looping)
 	(void)looping;
 }
 
-FUNCMATH boolean I_SetVolumeCD(int volume)
+FUNCMATH boolean I_SetVolumeCD(INT32 volume)
 {
 	(void)volume;
 	return false;

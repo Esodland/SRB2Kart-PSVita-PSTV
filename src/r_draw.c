@@ -583,7 +583,7 @@ UINT8 R_GetColorByName(const char *name)
 	if (color > 0 && color < MAXSKINCOLORS)
 		return color;
 	for (color = 1; color < MAXSKINCOLORS; color++)
-		if (!stricmp(Color_Names[color], name))
+		if (!strcasecmp(Color_Names[color], name))
 			return color;
 	return 0;
 }

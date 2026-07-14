@@ -84,6 +84,8 @@ consvar_t cv_samplerate = {"samplerate", "11025", 0, CV_Unsigned, NULL, 11025, N
 consvar_t cv_samplerate = {"samplerate", "44100", 0, CV_Unsigned, NULL, 44100, NULL, NULL, 0, 0, NULL}; //Alam: For easy hacking?
 #elif defined(_WII)
 consvar_t cv_samplerate = {"samplerate", "32000", 0, CV_Unsigned, NULL, 32000, NULL, NULL, 0, 0, NULL}; //Alam: For easy hacking?
+#elif defined(__SWITCH__) || defined(__vita__)
+consvar_t cv_samplerate = {"samplerate", "48000", 0, CV_Unsigned, NULL, 48000, NULL, NULL, 0, 0, NULL}; //Alam: For easy hacking?
 #else
 consvar_t cv_samplerate = {"samplerate", "22050", 0, CV_Unsigned, NULL, 22050, NULL, NULL, 0, 0, NULL}; //Alam: For easy hacking?
 #endif
@@ -93,6 +95,11 @@ consvar_t stereoreverse = {"stereoreverse", "Off", CV_SAVE, CV_OnOff, NULL, 0, N
 
 // if true, all sounds are loaded at game startup
 static consvar_t precachesound = {"precachesound", "Off", CV_SAVE, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
+
+#ifdef __vita__
+// Definie dans la section Music, appelee des S_InitSfxChannels (voir la-bas).
+static void S_PrecacheFixedMusic(void);
+#endif
 
 // actual general (maximum) sound & music volume, saved into the config
 consvar_t cv_soundvolume = {"soundvolume", "18", CV_SAVE, soundvolume_cons_t, NULL, 0, NULL, NULL, 0, 0, NULL};
@@ -594,6 +601,13 @@ void S_StartSoundAtVolume(const void *origin_p, sfxenum_t sfx_id, INT32 volume)
 		// NOTE: set sfx->data NULL sfx->lump -1 to force a reload
 		if (!sfx->data)
 		{
+			/* Sur Vita, ce decodage (un OGG : 160 a 240 ms !) est normalement DEJA
+			   FAIT par l'ouvrier de fond, qui prend les sons de vitesse pendant les
+			   menus et les chargements (I_PumpSfxPrefetch).
+			   S'il ne l'a pas encore atteint, on le decode ici, comme avant : un pic,
+			   mais JAMAIS un son manquant. Rendre l'occurrence muette etait une
+			   fausse bonne idee — le dernier tour et l'arrivee ne sonnent qu'UNE fois
+			   par course, donc « la premiere occurrence » est la seule. */
 			sfx->data = I_GetSfx(sfx);
 		}
 
@@ -923,9 +937,40 @@ void S_SetSfxVolume(INT32 volume)
 #endif
 }
 
+#ifdef __vita__
+/* On/Off : garder les sons decodes entre deux niveaux (voir S_ClearSfx).
+   PAS de CV_SAVE : on veut pouvoir comparer sans que kartconfig.cfg s'en mele. */
+consvar_t cv_vitakeepsfx = {"vitakeepsfx", "On", 0, CV_OnOff, NULL, 0, NULL, NULL, 0, 0, NULL};
+#endif
+
 void S_ClearSfx(void)
 {
-#ifndef DJGPPDOS
+#if defined(__vita__)
+	/* On GARDE les sons deja decodes (des OGG, en memoire SDL : la purge de la zone
+	   qui suit ne les concerne pas). Les liberer a chaque chargement obligeait a
+	   redecoder plusieurs secondes de sons pour RELANCER LA MEME COURSE — alors
+	   qu'ils etaient deja en memoire, identiques. Detail dans mixer_sound.c.
+
+	   MAIS : ca coute ~20 Mo de tas en permanence. Sur un serveur charge d'addons
+	   (des dizaines de Mo de personnages), ce surplus peut faire echouer des
+	   allocations — et un sprite qu'on ne peut pas allouer, c'est un personnage
+	   INVISIBLE, sans le moindre message. D'ou la cvar `vitakeepsfx` : la mettre a
+	   Off restaure le comportement d'origine (tout liberer), pour comparer sur le
+	   MEME serveur au lieu de speculer. */
+	/* On ne garde les sons que si la memoire le permet. Des qu'un serveur charge des
+	   addons (des dizaines, voire des centaines de Mo de personnages), notre surcout
+	   de ~20 Mo n'est plus defendable : on rend tout, quitte a redecoder au prochain
+	   chargement. Mesure : un serveur a 274 Mo d'addons faisait echouer Z_Malloc au
+	   chargement de la course. */
+	if (cv_vitakeepsfx.value && numwadfiles <= mainwads)
+		I_ClearSfxKeepDecoded();
+	else
+	{
+		size_t i;
+		for (i = 1; i < NUMSFX; i++)
+			I_FreeSfx(S_sfx + i);
+	}
+#elif !defined(DJGPPDOS)
 	size_t i;
 	for (i = 1; i < NUMSFX; i++)
 		I_FreeSfx(S_sfx + i);
@@ -1188,7 +1233,7 @@ void S_StartSoundName(void *mo, const char *soundname)
 	{
 		if (!S_sfx[i].name)
 			continue;
-		if (!stricmp(S_sfx[i].name, soundname))
+		if (!strcasecmp(S_sfx[i].name, soundname))
 		{
 			soundnum = i;
 			break;
@@ -1256,6 +1301,36 @@ void S_InitSfxChannels(INT32 sfxVolume)
 
 		CONS_Printf(M_GetText(" pre-cached all sound data\n"));
 	}
+#ifdef __vita__
+	else if (!sound_disabled)
+	{
+		/* PRECHARGEMENT DES LUMPS BRUTS : SUPPRIME (14/07).
+		   Il lisait les ~900 lumps de sons au demarrage pour eviter la lecture
+		   disque au premier usage. Il ne sert plus a rien : les sons vraiment
+		   utilises sont desormais DECODES au chargement du niveau (liste chaude,
+		   I_PrecacheWarmSfx), ce qui lit le lump au passage. Et il COUTAIT CHER :
+		   - 66 SECONDES de lectures disque au demarrage (mesure : 10 227 lectures) ;
+		   - ~23 Mo de tas gardes pour rien, en plus des sons decodes.
+		   Ce trop-plein a fini par faire echouer un malloc DANS LE RENDU
+		   (data abort dans DrawPolygon : le batching agrandit ses tampons et ne
+		   verifie jamais le retour de malloc). */
+
+		/* Les jingles (8,3 Mo) restent precharges ICI, et pas au chargement du
+		   niveau : « racent » est jouee sur l'ecran qui PRECEDE la course. */
+		S_PrecacheFixedMusic();
+
+		/* Et on DECODE les bruitages de la liste chaude ICI, au demarrage.
+		   C'est possible depuis que S_ClearSfx() les EPARGNE (I_ClearSfxKeepDecoded) :
+		   avant, P_SetupLevel les libérait a chaque chargement de niveau et ce travail
+		   partait a la poubelle. Maintenant ils survivent toute la session.
+		   Pourquoi ici plutot qu'au chargement de la course : mesure console — la
+		   premiere course payait 8,3 s de decodage (11,1 s de chargement !). Au boot,
+		   il y a deja une barre de progression et le joueur attend de toute facon ;
+		   en course, il trepigne. Les chargements de course tombent a ~2,7 s, c'est-a-
+		   dire le cout du JEU (geometrie, textures), plus le notre. */
+		I_PrecacheWarmSfx(false /* pas de musique a menager : on est au boot */);
+	}
+#endif
 }
 
 /// ------------------------
@@ -1601,13 +1676,79 @@ UINT32 S_GetMusicPosition(void)
 /// Music Playback
 /// ------------------------
 
+#ifdef __vita__
+/* Precharge le LUMP d'une musique (la lecture sur la carte memoire), sans la
+   decoder. Mesure du 13/07/2026 : sur une piste, la lecture disque coute 250 a
+   740 ms alors que le decodage n'en coute que 2 a 130 — c'est donc la lecture
+   qu'il faut sortir de la course. Les lumps PU_MUSIC ne sont pas purgeables
+   (tag 12 < PU_PURGELEVEL) et, sous SDL, S_UnloadMusic ne les repasse pas en
+   PU_CACHE : ils restent donc en RAM une fois lus. */
+static void S_PrecacheMusicLump(const char *mname)
+{
+	lumpnum_t l;
+
+	if (!mname || !mname[0])
+		return;
+
+	l = W_CheckNumForName(va("o_%s", mname));
+	if (l == LUMPERROR)
+		l = W_CheckNumForName(va("d_%s", mname));
+
+	if (l != LUMPERROR)
+		W_CacheLumpNum(l, PU_MUSIC);
+}
+
+/* Precharge TOUS les jingles, sans liste a maintenir.
+   Le pattern (constate en lisant music.kart) : les musiques de CIRCUIT
+   s'appellent O_KMAP* — 102 morceaux, 92 Mo, on ne peut pas tout garder. Tout
+   le reste, ce sont les jingles fixes, communs a toutes les cartes : depart
+   (kstart), invincibilite (kinvnc), croissance (kgrow), fin de course
+   (krwin/krlose/krok/krfail), vote... 20 morceaux pour seulement 8,3 Mo.
+   On les avale donc tous d'un coup au demarrage : plus aucune liste a tenir a
+   jour, et plus aucun gel en course. (Une liste ecrite a la main avait deja
+   oublie kstart et les musiques d'arrivee.) */
+static void S_PrecacheFixedMusic(void)
+{
+	UINT16 w, l;
+
+	for (w = 0; w < numwadfiles; w++)
+	{
+		for (l = 0; l < wadfiles[w]->numlumps; l++)
+		{
+			const char *name = wadfiles[w]->lumpinfo[l].name;
+
+			if (strnicmp(name, "O_", 2))
+				continue;
+			if (!strnicmp(name, "O_KMAP", 6))
+				continue; // musique de circuit : trop grosse, chargee a la carte
+
+			W_CacheLumpNumPwad(w, l, PU_MUSIC); // lecture disque, pas de decodage
+		}
+	}
+}
+
+/* Appele au chargement d'un niveau : seule la piste du circuit en depend.
+   Les jingles, eux, sont precharges des le demarrage du jeu (S_InitSfxChannels) :
+   les faire ici etait TROP TARD — « racent » est jouee sur l'ecran qui PRECEDE
+   la course, donc avant le chargement du niveau, et elle se lisait encore depuis
+   la carte (525 ms de gel, mesure). */
+void S_PrecacheRaceMusic(void)
+{
+	if (S_MusicDisabled())
+		return;
+
+	S_PrecacheMusicLump(mapmusname); // la piste du circuit (jusqu'a 3 Mo)
+}
+#endif
+
 static boolean S_LoadMusic(const char *mname)
 {
 	lumpnum_t mlumpnum;
 	void *mdata;
+#define VITA_MUSIC_RETURN(v) return (v)
 
 	if (S_MusicDisabled())
-		return false;
+		VITA_MUSIC_RETURN(false);
 
 	if (!S_DigMusicDisabled() && S_DigExists(mname))
 		mlumpnum = W_GetNumForName(va("o_%s", mname));
@@ -1653,10 +1794,12 @@ static boolean S_LoadMusic(const char *mname)
 		strncpy(music_name, mname, 7);
 		music_name[6] = 0;
 		music_data = mdata;
-		return true;
+		VITA_MUSIC_RETURN(true);
 	}
 	else
-		return false;
+	{
+		VITA_MUSIC_RETURN(false);
+	}
 }
 
 static void S_UnloadMusic(void)

@@ -577,7 +577,7 @@ INT32 P_AddLevelFlat(const char *flatname, levelflat_t *levelflat)
 	//  first scan through the already found flats
 	//
 	for (i = 0; i < numlevelflats; i++, levelflat++)
-		if (strnicmp(levelflat->name,flatname,8)==0)
+		if (strncasecmp(levelflat->name,flatname,8)==0)
 			break;
 
 	// that flat was already found in the level, return the id
@@ -617,7 +617,7 @@ INT32 P_AddLevelFlatRuntime(const char *flatname)
 	//  first scan through the already found flats
 	//
 	for (i = 0; i < numlevelflats; i++, levelflat++)
-		if (strnicmp(levelflat->name,flatname,8)==0)
+		if (strncasecmp(levelflat->name,flatname,8)==0)
 			break;
 
 	// that flat was already found in the level, return the id
@@ -657,7 +657,7 @@ INT32 P_CheckLevelFlat(const char *flatname)
 	//  scan through the already found flats
 	//
 	for (i = 0; i < numlevelflats; i++, levelflat++)
-		if (strnicmp(levelflat->name,flatname,8)==0)
+		if (strncasecmp(levelflat->name,flatname,8)==0)
 			break;
 
 	if (i == numlevelflats)
@@ -2938,6 +2938,45 @@ boolean P_SetupLevel(boolean skipprecip)
 	S_StopSounds();
 	S_ClearSfx();
 
+#ifdef __vita__
+	/* S_ClearSfx() vient de LIBERER tous les bruitages decodes. Sans ce rappel, le jeu
+	   les redecode un par un EN COURSE (des OGG : 160-240 ms chacun, en pleine frame)
+	   — c'etait la cause des pics de 380 ms. On les decode donc ICI.
+
+	   DEUX REGIMES, parce que les deux situations n'ont pas les memes contraintes :
+	   - COURSE : on coupe la musique et on decode a PLEINE VITESSE. Le joueur attend,
+	     donc le chargement doit etre court ; et S_Start() (juste en dessous) relancera
+	     de toute facon la musique du circuit.
+	   - DEMO de l'ecran-titre : la musique du menu doit CONTINUER (elle accompagne la
+	     demo). On ne peut donc pas la couper : on decode en douceur (priorite basse +
+	     respiration), sinon le thread audio rate ses echeances et la musique hache.
+	     Ici personne n'attend : quelques secondes de plus n'ont aucune importance. */
+	{
+		boolean vita_demo = demo.playback;
+		/* ⚠️ ADDONS : on ne precharge RIEN. Deux raisons, toutes deux vecues :
+		   1. Avec des addons, S_ClearSfx() libere de nouveau les sons a chaque niveau
+		      (il le faut : le tas est deja sature par les addons). Precharger, c'est
+		      donc decoder 82 sons pour les jeter a la fin de la course.
+		   2. Surtout : ces ~8 s de decodage BLOQUENT la boucle de jeu, qui cesse de
+		      repondre au serveur -> « Server Timeout » a la connexion. C'est pour ca
+		      que le moteur appelle NetKeepAlive() pendant ses chargements longs.
+		   Sans prechargement, les sons se decodent a la demande, comme dans le jeu
+		   d'origine : quelques pics, mais on reste connecte. */
+		boolean vita_addons = (numwadfiles > mainwads);
+
+		if (!vita_demo)
+		{
+			S_StopMusic();
+
+			if (!vita_addons)
+				VitaLoad_Begin(); /* l'ecran est fige ET muet : montrer que ca avance */
+		}
+
+		if (!vita_addons)
+			I_PrecacheWarmSfx(vita_demo /* en douceur : la musique doit survivre */);
+	}
+#endif
+
 	// As oddly named as this is, this handles music only.
 	// We should be fine starting it here.
 	S_Start();
@@ -3361,6 +3400,61 @@ boolean P_SetupLevel(boolean skipprecip)
 	if (rendermode != render_soft && rendermode != render_none)
 	{
 		HWR_PrepLevelCache(numtextures);
+
+#ifdef __vita__
+		/* R_PrecacheLevel() (plus bas) sort immediatement quand on n'est pas en
+		   rendu logiciel : en OpenGL, AUCUNE texture n'est donc prechargee.
+		   Chacune est convertie en RGBA puis televersee au GPU la PREMIERE fois
+		   qu'elle apparait a l'ecran — c'est-a-dire en pleine course, au milieu
+		   d'une frame. Mesure du 13/07/2026 : des pics de 42 a 186 ms, et des
+		   frames ratees qui decroissent au fil des tours (17 -> 11 -> 5 -> 3 par
+		   fenetre de 64) a mesure que le cache se remplit tout seul.
+		   On paie donc ce cout ICI, pendant l'ecran de chargement, ou il ne se
+		   voit pas. */
+		{
+			char *present = calloc(numtextures, 1);
+			size_t i;
+
+			/* ATTENTION : `numtextures` = TOUTES les textures definies dans les
+			   WADs (des milliers), pas celles de la carte. Les charger toutes a
+			   fait exploser le tas : malloc() du tampon de replay renvoyait NULL,
+			   G_SaveDemo ecrivait a l'adresse 16 -> data abort (13/07/2026).
+			   On ne garde donc que celles reellement posees sur les murs, comme
+			   le fait R_PrecacheLevel pour le rendu logiciel. */
+			if (present)
+			{
+				for (i = 0; i < numsides; i++)
+				{
+					if (sides[i].toptexture > 0 && sides[i].toptexture < numtextures)
+						present[sides[i].toptexture] = 1;
+					if (sides[i].midtexture > 0 && sides[i].midtexture < numtextures)
+						present[sides[i].midtexture] = 1;
+					if (sides[i].bottomtexture > 0 && sides[i].bottomtexture < numtextures)
+						present[sides[i].bottomtexture] = 1;
+				}
+
+				for (i = 0; i < numtextures; i++)
+				{
+					if (present[i])
+						HWR_GetTexture((INT32)i);
+				}
+
+				free(present);
+			}
+
+			/* levelflats ne contient DEJA que les sols de la carte. */
+			for (i = 0; i < numlevelflats; i++)
+			{
+				if (levelflats[i].lumpnum != LUMPERROR)
+					HWR_GetFlat(levelflats[i].lumpnum, false);
+			}
+		}
+
+		/* Les musiques de la course : leur LECTURE sur la carte memoire coute
+		   250 a 740 ms et gelait le jeu en pleine action (premier champignon,
+		   invincibilite, arrivee...). On la fait ici, pendant le chargement. */
+		S_PrecacheRaceMusic();
+#endif
 	}
 #endif
 
@@ -3417,6 +3511,10 @@ boolean P_SetupLevel(boolean skipprecip)
 	}
 
 	G_AddMapToBuffer(gamemap-1);
+
+#ifdef __vita__
+	VitaLoad_End(); /* le jeu reprend l'ecran a sa premiere frame */
+#endif
 
 	return true;
 }
@@ -3492,7 +3590,7 @@ UINT16 P_PartialAddWadFile(const char *wadfilename)
 		{
 			if (name[1] == 'S') for (j = 1; j < NUMSFX; j++)
 			{
-				if (S_sfx[j].name && !strnicmp(S_sfx[j].name, name + 2, 6))
+				if (S_sfx[j].name && !strncasecmp(S_sfx[j].name, name + 2, 6))
 				{
 					// the sound will be reloaded when needed,
 					// since sfx->data will be NULL

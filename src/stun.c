@@ -11,7 +11,9 @@
 
 /* https://tools.ietf.org/html/rfc5389 */
 
-#if defined (__unix__)
+#if defined (__vita__)
+#include <psp2/kernel/rng.h>
+#elif defined (__unix__)
 #include <sys/random.h>
 #elif defined (_WIN32)
 #define _CRT_RAND_S
@@ -91,7 +93,9 @@ csprng
 		void * const buffer,
 		const size_t size
 ){
-#if defined (_WIN32)
+#if defined (__vita__)
+	sceKernelGetRandomNumber(buffer, size);
+#elif defined (_WIN32)
 	size_t o;
 
 	for (o = 0; o < size; o += sizeof (unsigned int))

@@ -197,7 +197,11 @@ INT32 M_MapNumber(char first, char second)
 // ==========================================================================
 
 // some libcs has no access function, make our own
-#if defined (_WIN32_WCE) || defined (_XBOX) || defined (_WII) || defined (_PS3)
+// (Vita : le newlib du VitaSDK a bien un access(), mais c'est un stub qui
+//  renvoie 0 pour TOUT chemin, même inexistant -> I_LocateWad choisissait
+//  le premier dossier candidat venu et le jeu ne trouvait aucun WAD)
+#if defined (_WIN32_WCE) || defined (_XBOX) || defined (_WII) || defined (_PS3) || defined (__vita__)
+#define access srb2_access
 int access(const char *path, int amode)
 {
 	int accesshandle = -1;
@@ -404,7 +408,11 @@ boolean FIL_CheckExtension(const char *in)
 // DEFAULTS
 //
 
+#ifdef __vita__
+char configfile[MAX_WADPATH] = "ux0:/data/srb2kart/config.cfg";
+#else
 char configfile[MAX_WADPATH];
+#endif
 
 // ==========================================================================
 //                          CONFIGURATION
@@ -428,7 +436,7 @@ void Command_SaveConfig_f(void)
 	FIL_ForceExtension(tmpstr, ".cfg");
 
 	M_SaveConfig(tmpstr);
-	if (stricmp(COM_Argv(2), "-silent"))
+	if (strcasecmp(COM_Argv(2), "-silent"))
 		CONS_Printf(M_GetText("config saved as %s\n"), configfile);
 }
 
@@ -566,8 +574,18 @@ void M_SaveConfig(const char *filename)
 			CONS_Alert(CONS_NOTICE, M_GetText("Config filename must be .cfg\n"));
 			return;
 		}
-
+		
+#ifdef __vita__
+		char path[256];
+		if (strncmp(configfile, "ux0", 3) == 0) {
+			strcpy(path, configfile);
+		} else {
+			sprintf(path, "ux0:/data/srb2kart/%s", configfile);
+		}
+		f = fopen(path, "w");
+#else
 		f = fopen(configfile, "w");
+#endif
 		if (!f)
 		{
 			CONS_Alert(CONS_ERROR, M_GetText("Couldn't save game config file %s\n"), configfile);

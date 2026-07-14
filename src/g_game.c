@@ -8203,7 +8203,7 @@ void G_AddGhost(char *defdemoname)
 #endif
 
 	for (i = 0; i < numskins; i++)
-		if (!stricmp(skins[i].name,skin))
+		if (!strcasecmp(skins[i].name,skin))
 		{
 			ghskin = &skins[i];
 			break;
