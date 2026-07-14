@@ -26,7 +26,6 @@ top of decades of engineering by others:
 | **Ryo** | Help and guidance throughout the port. |
 | **[TheFloW](https://github.com/TheOfficialFloW)** | HENkaku, taiHEN, VitaShell — the homebrew platform everything runs on. |
 | **[VitaSDK](https://vitasdk.org/) contributors** | The toolchain, newlib, SDL2, and the `vdpm` package manager. |
-| **Esod** | This Vita/PS TV port. |
 
 Kart Krew is in no way affiliated with SEGA or Sonic Team. No ownership is claimed over any
 of SEGA's intellectual property used in SRB2.
