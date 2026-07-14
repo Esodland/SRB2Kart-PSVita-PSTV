@@ -23,7 +23,7 @@ top of decades of engineering by others:
 | **[Sonic Team Junior](https://srb2.org/)** | Sonic Robo Blast 2, the engine SRB2Kart is built on. |
 | **[Doom Legacy](http://doomlegacy.sourceforge.net/) & id Software** | The Doom engine underneath it all. |
 | **[Rinnegatamante](https://github.com/Rinnegatamante)** | **[vitaGL](https://github.com/Rinnegatamante/vitaGL)** (the OpenGL implementation this port renders with) and the original **[srb2-vita](https://github.com/Rinnegatamante/srb2-vita)** port of SRB2 (2019), which is where the "Vita glue" for this engine came from. Without these, this port would not exist. |
-| **Ryo** | Help and guidance throughout the port. |
+| **[Ryo](https://github.com/RyoSaeba89)** | Help and guidance throughout the port. |
 | **[TheFloW](https://github.com/TheOfficialFloW)** | HENkaku, taiHEN, VitaShell — the homebrew platform everything runs on. |
 | **[VitaSDK](https://vitasdk.org/) contributors** | The toolchain, newlib, SDL2, and the `vdpm` package manager. |
 
@@ -69,6 +69,16 @@ of SEGA's intellectual property used in SRB2.
 
 > ⚠️ **Booting takes about 75 seconds.** Most of it is textures; the rest is audio, decoded
 > up front on purpose — see below.
+>
+> A **progress bar** keeps you company throughout, and it tells the truth: each step's share of
+> the bar is proportional to how long that step actually takes (measured on the console), and a
+> dedicated thread keeps it moving even during the long silent stretch where the engine loads
+> textures and prints nothing. If a step runs longer than expected the bar *slows down* and
+> creeps towards the next mark without ever reaching it — so it can never fill up before the
+> game is ready, and it never freezes. A frozen screen looks like a crash; a moving bar looks
+> like a loading screen.
+>
+> Level loads get the same treatment.
 
 ### Why loading is slow (and why we chose it that way)
 
