@@ -12,6 +12,31 @@ that targets 60 FPS.
 
 ---
 
+## Two builds — which vitaGL, and which branch
+
+This repository ships the port in **two parallel versions**. You are looking at the default one.
+
+| Branch | Built against vitaGL… | Extra file on the console | Resolution change |
+|---|---|---|---|
+| **`vitagl-modern`** *(default — this branch)* | the **latest** vitaGL (upstream `master`, as of **2026‑07‑14**) | **needs `libshacccg.suprx`** in `ur0:data/` | **live, no restart** |
+| [`master`](../../tree/master) | the **old 2019** vitaGL that shipped with `srb2-vita` (commit `694b387`) | none | requires a restart |
+
+The port was **originally compiled against the 2019 vitaGL** — that is the version `srb2-vita`
+came with, and it needs nothing extra at runtime. That build lives on the `master` branch and is
+still fully supported.
+
+This `vitagl-modern` branch **recompiles the exact same port against current vitaGL**, which is
+over a thousand commits newer. The payoff: a pile of old rendering workarounds disappear, the
+video resolution can be changed **live, without restarting the game**, and it runs at least as
+well. The only cost is **one extra file** on the console — `libshacccg.suprx`, the runtime shader
+compiler that modern vitaGL relies on (a legal, hash‑verified copy is linked from
+[`BUILDING-MODERN-VITAGL.md`](BUILDING-MODERN-VITAGL.md)).
+
+**If you just want a working VPK with nothing extra to install, use [`master`](../../tree/master).**
+**If you want the newest engine and live resolution switching, use this branch.**
+
+---
+
 ## Credits — please read this first
 
 **This port stands almost entirely on other people's work.** It is a thin layer of glue on
@@ -36,7 +61,8 @@ of SEGA's intellectual property used in SRB2.
 
 | | |
 |---|---|
-| **Renderer** | OpenGL via vitaGL (hardware accelerated) |
+| **Renderer** | OpenGL via **current vitaGL** (hardware accelerated) — needs `libshacccg.suprx` on the console |
+| **Resolution** | Switchable **live, no restart** (960×544 / 720×408 / 640×368 / 480×272) |
 | **Performance** | ~60 FPS average in *Performance* mode (640×368); ~40 FPS in *Quality* (960×544) |
 | **Single player** | ✅ Race, Time Attack, Battle |
 | **Local multiplayer** | ✅ Splitscreen (untested with 2+ controllers, feedback welcome) |
@@ -55,6 +81,11 @@ of SEGA's intellectual property used in SRB2.
 - **~600 MB free** on `ux0:` (the game assets are large).
 - The **SRB2Kart v1.6 game data**. This port ships *no* game assets — you must supply them
   from the [official SRB2Kart release](https://srb2.org/mods/).
+- **`libshacccg.suprx` in `ur0:data/`** — the runtime shader compiler modern vitaGL needs.
+  This is **only required by this `vitagl-modern` build**; the [`master`](../../tree/master)
+  build does not need it. A legal, hash‑verified way to install it is
+  [AnimMouse/SceShaccCg](https://github.com/AnimMouse/SceShaccCg). *Without it, the game shows a
+  black screen.*
 
 ### Steps
 
@@ -157,12 +188,22 @@ Menus: ✕ confirms, ○ cancels. **✕ also opens the on-screen keyboard** on a
 | Sprite draw distance | Infinite | 2048 |
 | Measured frame time | ~25 ms (≈40 FPS) | **~15 ms (≈66 FPS)** |
 
-**Changing the resolution requires restarting the game** — the GXM render surface is created
-once at startup and cannot be resized. The game tells you so on screen, and remembers the
-choice.
+### Resolution — changed live (this branch)
 
-You can also pick a resolution directly in **Set Resolution…**; only the four the Vita's
-display controller can actually scan out are offered (960×544, 720×408, 640×368, 480×272).
+**Options → Video Options → Set Resolution…** — on this `vitagl-modern` branch the change
+applies **live, without restarting the game** (via modern vitaGL's `vglSwapResolution`). Only
+the four resolutions the Vita's display controller can actually scan out are offered — **960×544,
+720×408, 640×368, 480×272** — and the display hardware upscales the smaller ones to the panel for
+free. The choice is remembered across launches.
+
+> On the [`master`](../../tree/master) branch (2019 vitaGL) this instead **requires a restart** —
+> the render surface is fixed at startup there. Live switching is one of the reasons this branch
+> exists.
+
+A quirk worth knowing: SRB2's HUD/text is drawn on a fixed **320×200** canvas and blown up by an
+*integer* factor (`width ÷ 320`). So a **higher** resolution gives **bigger *and* sharper** text
+(960 = ×3, 640 = ×2, 480 = ×1) — the opposite of a PC, where more pixels usually means a smaller
+UI. This is normal Doom‑engine behaviour, not a bug.
 
 ---
 
@@ -233,20 +274,27 @@ vdpm curl openssl zstd     # master server (HTTPS) — curl here is built agains
 
 **vitaGL** must be built with `HAVE_SBRK=1` (it needs newlib's heap symbols).
 
-> ⚠️ This port is built against the **2019** vitaGL that came with `srb2-vita` (commit
-> `694b387`), *not* current upstream — see *Rendering* below. Building against a recent vitaGL
-> has **not been tested** and several of the workarounds in `r_opengl.c` would become
-> unnecessary (and possibly harmful). Pin the commit until someone does that work:
-
-```bash
-git clone https://github.com/Rinnegatamante/vitaGL && cd vitaGL
-git checkout 694b387          # the version this port was developed against
-make HAVE_SBRK=1 install
-```
-
-Against that old copy, also set **`DISPLAY_BUFFER_COUNT 3`** (triple buffering) in
-`source/shared.h` — see *Performance work* below. Current vitaGL exposes the display buffer
-count at runtime, so that patch is specific to the old version.
+> 🧭 **Two branches, two vitaGL versions — build the right one:**
+>
+> - **This branch (`vitagl-modern`)** links **current upstream vitaGL** and also needs
+>   **vitaShaRK** + **SceShaccCgExt** (modern vitaGL compiles its shaders at runtime). The full
+>   recipe — including the `libshacccg.suprx` the console then needs — is in
+>   **[`BUILDING-MODERN-VITAGL.md`](BUILDING-MODERN-VITAGL.md)**.
+>   ```bash
+>   git clone https://github.com/Rinnegatamante/vitaGL && cd vitaGL
+>   make HAVE_SBRK=1 NO_SPLASHSCREEN=1        # latest master
+>   ```
+> - **The [`master`](../../tree/master) branch** links the **2019** vitaGL that came with
+>   `srb2-vita` and needs no runtime shader compiler. Pin the commit and patch triple buffering:
+>   ```bash
+>   git clone https://github.com/Rinnegatamante/vitaGL && cd vitaGL
+>   git checkout 694b387                       # the 2019 version master was developed against
+>   # set DISPLAY_BUFFER_COUNT 3 in source/shared.h (triple buffering)
+>   make HAVE_SBRK=1 install
+>   ```
+>
+> `VITAGL_DIR` / `SHACCEXT_DIR` in `src/sdl/SRB2Vita/Makefile.cfg` point the build at your
+> checkout — override them on the `make` command line if your paths differ.
 
 ### Compile
 
@@ -314,21 +362,23 @@ returned a "valid" file descriptor.
 Related: `fopen(..., "a")` (append) **does not create the file** on this libc. When file I/O
 looks wrong, drop to the raw `sceIo*` API — it never lies.
 
-### Rendering: this port builds against a **2019** vitaGL
+### Rendering: the 2019 vitaGL, and moving off it
 
-> ⚠️ **Important, and embarrassing.** This port builds against the vitaGL that came with the 2019
-> `srb2-vita` tree (commit `694b387`). Upstream vitaGL is **more than 1100 commits ahead**, and
-> several of the limitations worked around below **were fixed years ago** — `glRotatef` with
-> negative axes, the fixed 128-buffer pool, the hardcoded display-buffer count.
->
-> We initially reported these upstream as if they were current bugs, **without ever reading the
-> current code**. They were not, and the reports were rightly rejected. The full accounting is in
+> 🧭 **This branch (`vitagl-modern`) builds against current vitaGL** — the move described below as
+> "the obvious next step" **is done here.** Most of the workarounds in this section are therefore
+> **gone on this branch** and only apply to the [`master`](../../tree/master) build (2019 vitaGL,
+> commit `694b387`). They are kept here as the history of what the engine assumes about OpenGL,
+> and because `master` still relies on them.
+
+> ⚠️ **A lesson worth keeping.** The 2019 vitaGL is **more than 1100 commits behind** upstream, and
+> several limitations worked around below **were fixed years ago** — `glRotatef` with negative
+> axes, the fixed 128‑buffer pool, the hardcoded display‑buffer count. We first reported these
+> upstream as if they were current bugs, **without reading the current code**; they were rightly
+> rejected. The full accounting is in
 > [`upstream/vitagl/`](upstream/vitagl/CORRECTION-we-were-looking-at-a-2019-snapshot.md).
->
-> **Moving this port to a current vitaGL is the obvious next step**, and would likely delete a
-> good part of the glue described below.
 
-What the *2019* vitaGL needed — i.e. what the engine assumes about OpenGL that it did not provide:
+What the *2019* vitaGL needed — i.e. what the engine assumes about OpenGL that it did not provide
+(**all handled natively by the current vitaGL this branch uses**):
 
 - It accepts **float vertex attributes only**. MD3 models load as shorts (`useFloat=false`) →
   converted short→float on every draw. Colour arrays of `GL_UNSIGNED_BYTE` are ignored, which is
